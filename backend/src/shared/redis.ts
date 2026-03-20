@@ -1,9 +1,7 @@
 // backend/src/shared/redis.ts
-import Redis from "ioredis";
+import { Redis } from "ioredis";
 import { env } from "./env.js";
 
-const RedisClient = Redis;
-
-export const redis = new RedisClient(env.REDIS_URL, {
+export const redis = new Redis(env.REDIS_URL, {
   maxRetriesPerRequest: 2
 });

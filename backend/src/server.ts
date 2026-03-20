@@ -1,7 +1,7 @@
 // backend/src/server.ts
-import { buildApp } from "./app";
-import { env } from "./shared/env";
-import { startJobs } from "./jobs/start-jobs";
+import { buildApp } from "./app.js";
+import { env } from "./shared/env.js";
+import { startJobs } from "./jobs/start-jobs.js";
 
 const start = async (): Promise<void> => {
   const app = await buildApp();
@@ -14,7 +14,4 @@ const start = async (): Promise<void> => {
   }
 };
 
-start().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+await start();
