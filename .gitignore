@@ -1,0 +1,9 @@
+node_modules
+dist
+.next
+.env
+.env.local
+.env.production
+backend/node_modules
+frontend/node_modules
+backend/prisma/migrations

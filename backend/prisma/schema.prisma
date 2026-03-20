@@ -1,0 +1,179 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  phone         String?
+  passwordHash  String
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  roles         UserRole[]
+  managedRoute  Route[]        @relation("RouteManager")
+  clientLoans   Loan[]         @relation("ClientLoans")
+  managedLoans  Loan[]         @relation("ManagerLoans")
+  payments      Payment[]
+  pushSubs      PushSubscription[]
+}
+
+model Role {
+  id    String     @id @default(cuid())
+  name  RoleName   @unique
+  users UserRole[]
+}
+
+enum RoleName {
+  SUPER_ADMIN
+  ADMIN
+  ROUTE_MANAGER
+  CLIENT
+}
+
+model UserRole {
+  userId    String
+  roleId    String
+  user      User   @relation(fields: [userId], references: [id])
+  role      Role   @relation(fields: [roleId], references: [id])
+  @@id([userId, roleId])
+}
+
+model Route {
+  id          String   @id @default(cuid())
+  name        String
+  managerId   String
+  balance     Decimal  @default(0) @db.Decimal(12,2)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  manager     User     @relation("RouteManager", fields: [managerId], references: [id])
+  clients     RouteClient[]
+  loans       Loan[]
+  balanceLogs ManagerBalanceLog[]
+}
+
+model RouteClient {
+  routeId   String
+  clientId  String
+  route     Route  @relation(fields: [routeId], references: [id])
+  @@id([routeId, clientId])
+}
+
+model Loan {
+  id                String      @id @default(cuid())
+  routeId           String
+  clientId          String
+  managerId         String
+  principal         Decimal     @db.Decimal(12,2)
+  interestRate      Decimal     @db.Decimal(5,4)
+  termDays          Int
+  frequency         Frequency
+  installmentCount  Int
+  installmentAmount Decimal     @db.Decimal(12,2)
+  totalAmount       Decimal     @db.Decimal(12,2)
+  totalInterest     Decimal     @db.Decimal(12,2)
+  status            LoanStatus  @default(ACTIVE)
+  startDate         DateTime
+  endDate           DateTime
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  route             Route       @relation(fields: [routeId], references: [id])
+  client            User        @relation("ClientLoans", fields: [clientId], references: [id])
+  manager           User        @relation("ManagerLoans", fields: [managerId], references: [id])
+  schedule          PaymentSchedule[]
+  payments          Payment[]
+}
+
+enum Frequency {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
+enum LoanStatus {
+  ACTIVE
+  COMPLETED
+  DEFAULTED
+  RESTRUCTURED
+}
+
+model PaymentSchedule {
+  id                 String          @id @default(cuid())
+  loanId             String
+  installmentNumber  Int
+  dueDate            DateTime
+  amount             Decimal         @db.Decimal(12,2)
+  paidAmount         Decimal         @default(0) @db.Decimal(12,2)
+  status             ScheduleStatus  @default(PENDING)
+  paidAt             DateTime?
+  
+  loan               Loan            @relation(fields: [loanId], references: [id])
+  payments           Payment[]
+}
+
+enum ScheduleStatus {
+  PENDING
+  PAID
+  OVERDUE
+  PARTIAL
+}
+
+model Payment {
+  id             String          @id @default(cuid())
+  loanId         String
+  scheduleId     String?
+  amount         Decimal         @db.Decimal(12,2)
+  registeredById String
+  notes          String?
+  createdAt      DateTime        @default(now())
+
+  loan           Loan            @relation(fields: [loanId], references: [id])
+  schedule       PaymentSchedule? @relation(fields: [scheduleId], references: [id])
+  registeredBy   User            @relation(fields: [registeredById], references: [id])
+}
+
+model ManagerBalanceLog {
+  id          String      @id @default(cuid())
+  routeId     String
+  amount      Decimal     @db.Decimal(12,2)
+  type        BalanceType
+  reference   String?
+  createdById String
+  createdAt   DateTime    @default(now())
+
+  route       Route       @relation(fields: [routeId], references: [id])
+}
+
+enum BalanceType {
+  CREDIT
+  DEBIT
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}

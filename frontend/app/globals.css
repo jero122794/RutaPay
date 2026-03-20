@@ -1,0 +1,172 @@
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Design tokens (dark-first) */
+  /* Base layers (Precision Ledger) */
+  --background: #090e1c; /* surface-container-lowest */
+  --background-rgb: 9 14 28;
+  --surface: #1a1f2f; /* surface-container */
+  --surface-rgb: 26 31 47;
+  --surface-2: #2f3445; /* elevated interactive */
+  --surface-2-rgb: 47 52 69;
+
+  /* Ghost border density (not fully opaque) */
+  --border: #2a3f5f;
+  --border-rgb: 42 63 95;
+  --border-light: #2a3f5f;
+  --border-light-rgb: 42 63 95;
+
+  --primary: #2563eb;
+  --primary-rgb: 37 99 235;
+  --primary-hover: #1d4ed8;
+  --primary-hover-rgb: 29 78 216;
+  --primary-glow: rgba(37, 99, 235, 0.15);
+
+  --success: #10b981;
+  --success-rgb: 16 185 129;
+  --success-bg: rgba(16, 185, 129, 0.1);
+  --warning: #f59e0b;
+  --warning-rgb: 245 158 11;
+  --warning-bg: rgba(245, 158, 11, 0.1);
+  --danger: #ef4444;
+  --danger-rgb: 239 68 68;
+  --danger-bg: rgba(239, 68, 68, 0.1);
+  --info: #06b6d4;
+  --info-rgb: 6 182 212;
+  --info-bg: rgba(6, 182, 212, 0.1);
+
+  --text-primary: #f0f4ff;
+  --text-primary-rgb: 240 244 255;
+  --text-secondary: #8899b4;
+  --text-secondary-rgb: 136 153 180;
+  --text-muted: #4a5568;
+  --text-muted-rgb: 74 85 104;
+
+  --font-display: "Plus Jakarta Sans";
+  --font-body: "Inter";
+  --font-mono: "JetBrains Mono";
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: var(--background);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  height: 100%;
+}
+
+/* Editorial voice: headlines use Plus Jakarta Sans */
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+body {
+  background-color: #090e1c;
+  -webkit-tap-highlight-color: transparent;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* iOS zoom guard: keep input font-size >= 16px */
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+  font-size: 16px;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--primary-glow);
+  border-color: var(--primary);
+}
+
+@media (min-width: 1024px) {
+  /* Desktop typography tokens */
+  .text-3xl {
+    font-size: 36px;
+    line-height: 44px;
+  }
+  .text-4xl {
+    font-size: 48px;
+    line-height: 64px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer components {
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .rutapay-table-wrap {
+    @apply overflow-x-auto rounded-3xl border border-white/5 bg-surface-container shadow-2xl;
+  }
+
+  .rutapay-table {
+    @apply w-full border-collapse text-left;
+  }
+
+  .rutapay-table thead tr {
+    @apply border-b border-white/5 bg-surface-container-highest/30 text-[11px] font-bold uppercase tracking-[0.15em] text-outline;
+  }
+
+  .rutapay-table th {
+    @apply px-6 py-4 font-label;
+  }
+
+  .rutapay-table tbody {
+    @apply divide-y divide-white/5;
+  }
+
+  .rutapay-table tbody tr {
+    @apply transition-colors hover:bg-white/[0.02];
+  }
+
+  .rutapay-table td {
+    @apply px-6 py-4 text-sm text-on-surface-variant;
+  }
+
+  .rutapay-table td[data-mono="true"] {
+    @apply font-mono text-on-surface;
+  }
+
+  .rutapay-table-footer {
+    @apply flex items-center justify-between border-t border-white/5 bg-surface-container-low px-6 py-4 text-xs text-outline;
+  }
+}
