@@ -17,18 +17,6 @@ interface RouteItem {
   name: string;
 }
 
-interface ClientItem {
-  id: string;
-  routeId: string;
-}
-
-interface RouteDetailResponse {
-  data: {
-    id: string;
-    name: string;
-  };
-}
-
 interface ListResponse<T> {
   data: T[];
   total: number;
@@ -68,35 +56,20 @@ const ClientsNewPage = (): JSX.Element => {
 
   const canCreate = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
   const isAdminView = role === "ADMIN" || role === "SUPER_ADMIN";
+  const isRouteManagerView = role === "ROUTE_MANAGER";
 
   const routesQuery = useQuery({
-    queryKey: ["routes-list"],
+    queryKey: [isAdminView ? "routes-list" : "routes-me-for-client-create"],
     queryFn: async (): Promise<ListResponse<RouteItem>> => {
-      const response = await api.get<ListResponse<RouteItem>>("/routes");
+      const endpoint = isAdminView ? "/routes" : "/routes/me";
+      const response = await api.get<ListResponse<RouteItem>>(endpoint);
       return response.data;
     },
-    enabled: isAdminView
+    enabled: isAdminView || isRouteManagerView
   });
 
-  const clientsForInferenceQuery = useQuery({
-    queryKey: ["clients-inference-routeId"],
-    queryFn: async (): Promise<ListResponse<ClientItem>> => {
-      const response = await api.get<ListResponse<ClientItem>>("/clients");
-      return response.data;
-    },
-    enabled: role === "ROUTE_MANAGER"
-  });
-
-  const inferredRouteId = clientsForInferenceQuery.data?.data[0]?.routeId ?? "";
-
-  const routeDetailQuery = useQuery({
-    queryKey: ["route-detail-for-client-create", inferredRouteId],
-    queryFn: async (): Promise<RouteDetailResponse> => {
-      const response = await api.get<RouteDetailResponse>(`/routes/${inferredRouteId}`);
-      return response.data;
-    },
-    enabled: !isAdminView && Boolean(inferredRouteId)
-  });
+  const managerRoutes = routesQuery.data?.data ?? [];
+  const defaultRouteIdForManager = managerRoutes[0]?.id ?? "";
 
   const form = useForm<CreateClientFormData>({
     resolver: zodResolver(createClientSchema),
@@ -105,25 +78,29 @@ const ClientsNewPage = (): JSX.Element => {
       email: "",
       phone: "",
       password: "",
-      routeId: isAdminView ? "" : inferredRouteId || ""
+      routeId: isAdminView ? "" : defaultRouteIdForManager
     },
     mode: "onChange"
   });
 
   useEffect(() => {
-    if (role === "ROUTE_MANAGER" && inferredRouteId) {
-      form.setValue("routeId", inferredRouteId, { shouldValidate: true, shouldDirty: true });
+    if (!isRouteManagerView) {
+      return;
     }
-  }, [form, inferredRouteId, role]);
+    const selected = form.getValues("routeId");
+    if (!selected && defaultRouteIdForManager) {
+      form.setValue("routeId", defaultRouteIdForManager, { shouldValidate: true, shouldDirty: true });
+    }
+  }, [defaultRouteIdForManager, form, isRouteManagerView]);
 
   const onSubmit = async (values: CreateClientFormData): Promise<void> => {
     if (!canCreate) {
       return;
     }
 
-    const routeId = values.routeId ?? inferredRouteId;
+    const routeId = values.routeId;
     if (!routeId) {
-      form.setError("routeId", { type: "manual", message: "No pudimos inferir tu ruta. Selecciona una ruta." });
+      form.setError("routeId", { type: "manual", message: "Selecciona una ruta para el cliente." });
       return;
     }
 
@@ -174,12 +151,14 @@ const ClientsNewPage = (): JSX.Element => {
       </header>
 
       <div className="rounded-xl border border-border bg-surface p-6">
-        {isAdminView && routesQuery.isLoading ? <p className="text-sm text-textSecondary">Cargando rutas...</p> : null}
-        {isAdminView && routesQuery.isError ? (
+        {(isAdminView || isRouteManagerView) && routesQuery.isLoading ? (
+          <p className="text-sm text-textSecondary">Cargando rutas...</p>
+        ) : null}
+        {(isAdminView || isRouteManagerView) && routesQuery.isError ? (
           <p className="text-sm text-danger">No fue posible cargar las rutas.</p>
         ) : null}
 
-        {(!isAdminView || routesQuery.data) ? (
+        {((!isAdminView && !isRouteManagerView) || routesQuery.data) ? (
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)}>
             <div>
               <label htmlFor="name" className="mb-1 block text-sm text-textSecondary">
@@ -230,7 +209,7 @@ const ClientsNewPage = (): JSX.Element => {
               <p className="mt-1 text-xs text-danger">{form.formState.errors.password?.message}</p>
             </div>
 
-            {isAdminView ? (
+            {isAdminView || isRouteManagerView ? (
               <div>
                 <label htmlFor="routeId" className="mb-1 block text-sm text-textSecondary">
                   Ruta
@@ -242,7 +221,7 @@ const ClientsNewPage = (): JSX.Element => {
                   onChange={(e) => form.setValue("routeId", e.target.value, { shouldValidate: true })}
                 >
                   <option value="">Selecciona una ruta</option>
-                  {routes.map((r) => (
+                  {managerRoutes.map((r) => (
                     <option key={r.id} value={r.id}>
                       {r.name}
                     </option>
@@ -258,11 +237,7 @@ const ClientsNewPage = (): JSX.Element => {
                 <input
                   id="routeId"
                   className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-                  value={
-                    routeDetailQuery.isLoading
-                      ? ""
-                      : routeDetailQuery.data?.data.name ?? "Ruta no disponible"
-                  }
+                  value="Ruta no disponible"
                   readOnly
                 />
                 <p className="mt-1 text-xs text-danger">{form.formState.errors.routeId?.message}</p>

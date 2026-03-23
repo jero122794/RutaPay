@@ -87,14 +87,28 @@ const RegisterContent = (): JSX.Element => {
 
   useEffect(() => {
     if (!isRouteManager) return;
-    if (routeIdFromQuery) return;
-
     const routes = routesMeQuery.data?.data ?? [];
+    const selectedRouteId = form.getValues("routeId");
+    const hasSelectedRoute = selectedRouteId ? routes.some((route) => route.id === selectedRouteId) : false;
+    const queryRouteExists = routeIdFromQuery
+      ? routes.some((route) => route.id === routeIdFromQuery)
+      : false;
+
+    if (routeIdFromQuery && queryRouteExists && selectedRouteId !== routeIdFromQuery) {
+      form.setValue("routeId", routeIdFromQuery, { shouldValidate: true, shouldDirty: true });
+      return;
+    }
+
+    if (hasSelectedRoute) {
+      return;
+    }
+
     if (routes.length === 1) {
       form.setValue("routeId", routes[0].id, { shouldValidate: true, shouldDirty: true });
+      return;
     }
-    if (routes.length > 1 && !form.getValues("routeId")) {
-      // Default to the first route to keep registration simple.
+
+    if (routes.length > 1) {
       form.setValue("routeId", routes[0].id, { shouldValidate: true, shouldDirty: true });
     }
   }, [form, isRouteManager, routesMeQuery.data, routeIdFromQuery]);
@@ -102,6 +116,22 @@ const RegisterContent = (): JSX.Element => {
   const onSubmit = async (values: RegisterFormData): Promise<void> => {
     setError("");
     setSuccess("");
+
+    if (isRouteManager) {
+      const routes = routesMeQuery.data?.data ?? [];
+      const hasRoutes = routes.length > 0;
+      const selectedRouteId = values.routeId;
+      const isSelectedRouteValid = selectedRouteId ? routes.some((route) => route.id === selectedRouteId) : false;
+
+      if (hasRoutes && !isSelectedRouteValid) {
+        form.setError("routeId", {
+          type: "manual",
+          message: "Selecciona una ruta válida para asignar el cliente."
+        });
+        return;
+      }
+    }
+
     try {
       const response = await api.post<RegisterResponse>("/auth/register", values);
       setAccessToken(response.data.data.accessToken);
