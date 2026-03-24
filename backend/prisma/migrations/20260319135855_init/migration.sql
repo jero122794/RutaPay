@@ -157,7 +157,7 @@ CREATE TABLE IF NOT EXISTS "RefreshToken" (
 
 CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email");
 CREATE UNIQUE INDEX IF NOT EXISTS "Role_name_key" ON "Role"("name");
-CREATE UNIQUE INDEX IF NOT EXISTS "Route_managerId_key" ON "Route"("managerId");
+CREATE INDEX IF NOT EXISTS "Route_managerId_idx" ON "Route"("managerId");
 CREATE UNIQUE INDEX IF NOT EXISTS "PushSubscription_endpoint_key" ON "PushSubscription"("endpoint");
 CREATE UNIQUE INDEX IF NOT EXISTS "RefreshToken_token_key" ON "RefreshToken"("token");
 
