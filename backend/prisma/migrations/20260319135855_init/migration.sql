@@ -1,20 +1,36 @@
--- CreateEnum
-CREATE TYPE "RoleName" AS ENUM ('SUPER_ADMIN', 'ADMIN', 'ROUTE_MANAGER', 'CLIENT');
+-- Idempotent init: safe when DB already has schema (e.g. prior `db push` on Railway).
 
--- CreateEnum
-CREATE TYPE "Frequency" AS ENUM ('DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY');
+DO $$ BEGIN
+  CREATE TYPE "RoleName" AS ENUM ('SUPER_ADMIN', 'ADMIN', 'ROUTE_MANAGER', 'CLIENT');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "LoanStatus" AS ENUM ('ACTIVE', 'COMPLETED', 'DEFAULTED', 'RESTRUCTURED');
+DO $$ BEGIN
+  CREATE TYPE "Frequency" AS ENUM ('DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "ScheduleStatus" AS ENUM ('PENDING', 'PAID', 'OVERDUE', 'PARTIAL');
+DO $$ BEGIN
+  CREATE TYPE "LoanStatus" AS ENUM ('ACTIVE', 'COMPLETED', 'DEFAULTED', 'RESTRUCTURED');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "BalanceType" AS ENUM ('CREDIT', 'DEBIT');
+DO $$ BEGIN
+  CREATE TYPE "ScheduleStatus" AS ENUM ('PENDING', 'PAID', 'OVERDUE', 'PARTIAL');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateTable
-CREATE TABLE "User" (
+DO $$ BEGIN
+  CREATE TYPE "BalanceType" AS ENUM ('CREDIT', 'DEBIT');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS "User" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "email" TEXT NOT NULL,
@@ -27,24 +43,21 @@ CREATE TABLE "User" (
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "Role" (
+CREATE TABLE IF NOT EXISTS "Role" (
     "id" TEXT NOT NULL,
     "name" "RoleName" NOT NULL,
 
     CONSTRAINT "Role_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "UserRole" (
+CREATE TABLE IF NOT EXISTS "UserRole" (
     "userId" TEXT NOT NULL,
     "roleId" TEXT NOT NULL,
 
     CONSTRAINT "UserRole_pkey" PRIMARY KEY ("userId","roleId")
 );
 
--- CreateTable
-CREATE TABLE "Route" (
+CREATE TABLE IF NOT EXISTS "Route" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "managerId" TEXT NOT NULL,
@@ -55,16 +68,14 @@ CREATE TABLE "Route" (
     CONSTRAINT "Route_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "RouteClient" (
+CREATE TABLE IF NOT EXISTS "RouteClient" (
     "routeId" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
 
     CONSTRAINT "RouteClient_pkey" PRIMARY KEY ("routeId","clientId")
 );
 
--- CreateTable
-CREATE TABLE "Loan" (
+CREATE TABLE IF NOT EXISTS "Loan" (
     "id" TEXT NOT NULL,
     "routeId" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
@@ -86,8 +97,7 @@ CREATE TABLE "Loan" (
     CONSTRAINT "Loan_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "PaymentSchedule" (
+CREATE TABLE IF NOT EXISTS "PaymentSchedule" (
     "id" TEXT NOT NULL,
     "loanId" TEXT NOT NULL,
     "installmentNumber" INTEGER NOT NULL,
@@ -100,8 +110,7 @@ CREATE TABLE "PaymentSchedule" (
     CONSTRAINT "PaymentSchedule_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "Payment" (
+CREATE TABLE IF NOT EXISTS "Payment" (
     "id" TEXT NOT NULL,
     "loanId" TEXT NOT NULL,
     "scheduleId" TEXT,
@@ -113,8 +122,7 @@ CREATE TABLE "Payment" (
     CONSTRAINT "Payment_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "ManagerBalanceLog" (
+CREATE TABLE IF NOT EXISTS "ManagerBalanceLog" (
     "id" TEXT NOT NULL,
     "routeId" TEXT NOT NULL,
     "amount" DECIMAL(12,2) NOT NULL,
@@ -126,8 +134,7 @@ CREATE TABLE "ManagerBalanceLog" (
     CONSTRAINT "ManagerBalanceLog_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "PushSubscription" (
+CREATE TABLE IF NOT EXISTS "PushSubscription" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "endpoint" TEXT NOT NULL,
@@ -138,8 +145,7 @@ CREATE TABLE "PushSubscription" (
     CONSTRAINT "PushSubscription_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "RefreshToken" (
+CREATE TABLE IF NOT EXISTS "RefreshToken" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "token" TEXT NOT NULL,
@@ -149,56 +155,86 @@ CREATE TABLE "RefreshToken" (
     CONSTRAINT "RefreshToken_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email");
+CREATE UNIQUE INDEX IF NOT EXISTS "Role_name_key" ON "Role"("name");
+CREATE UNIQUE INDEX IF NOT EXISTS "Route_managerId_key" ON "Route"("managerId");
+CREATE UNIQUE INDEX IF NOT EXISTS "PushSubscription_endpoint_key" ON "PushSubscription"("endpoint");
+CREATE UNIQUE INDEX IF NOT EXISTS "RefreshToken_token_key" ON "RefreshToken"("token");
 
--- CreateIndex
-CREATE UNIQUE INDEX "Role_name_key" ON "Role"("name");
+DO $$ BEGIN
+  ALTER TABLE "UserRole" ADD CONSTRAINT "UserRole_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateIndex
-CREATE UNIQUE INDEX "Route_managerId_key" ON "Route"("managerId");
+DO $$ BEGIN
+  ALTER TABLE "UserRole" ADD CONSTRAINT "UserRole_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "Role"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateIndex
-CREATE UNIQUE INDEX "PushSubscription_endpoint_key" ON "PushSubscription"("endpoint");
+DO $$ BEGIN
+  ALTER TABLE "Route" ADD CONSTRAINT "Route_managerId_fkey" FOREIGN KEY ("managerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateIndex
-CREATE UNIQUE INDEX "RefreshToken_token_key" ON "RefreshToken"("token");
+DO $$ BEGIN
+  ALTER TABLE "RouteClient" ADD CONSTRAINT "RouteClient_routeId_fkey" FOREIGN KEY ("routeId") REFERENCES "Route"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "UserRole" ADD CONSTRAINT "UserRole_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "Loan" ADD CONSTRAINT "Loan_routeId_fkey" FOREIGN KEY ("routeId") REFERENCES "Route"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "UserRole" ADD CONSTRAINT "UserRole_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "Role"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "Loan" ADD CONSTRAINT "Loan_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "Route" ADD CONSTRAINT "Route_managerId_fkey" FOREIGN KEY ("managerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "Loan" ADD CONSTRAINT "Loan_managerId_fkey" FOREIGN KEY ("managerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "RouteClient" ADD CONSTRAINT "RouteClient_routeId_fkey" FOREIGN KEY ("routeId") REFERENCES "Route"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "PaymentSchedule" ADD CONSTRAINT "PaymentSchedule_loanId_fkey" FOREIGN KEY ("loanId") REFERENCES "Loan"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "Loan" ADD CONSTRAINT "Loan_routeId_fkey" FOREIGN KEY ("routeId") REFERENCES "Route"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "Payment" ADD CONSTRAINT "Payment_loanId_fkey" FOREIGN KEY ("loanId") REFERENCES "Loan"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "Loan" ADD CONSTRAINT "Loan_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "Payment" ADD CONSTRAINT "Payment_scheduleId_fkey" FOREIGN KEY ("scheduleId") REFERENCES "PaymentSchedule"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "Loan" ADD CONSTRAINT "Loan_managerId_fkey" FOREIGN KEY ("managerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "Payment" ADD CONSTRAINT "Payment_registeredById_fkey" FOREIGN KEY ("registeredById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "PaymentSchedule" ADD CONSTRAINT "PaymentSchedule_loanId_fkey" FOREIGN KEY ("loanId") REFERENCES "Loan"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "ManagerBalanceLog" ADD CONSTRAINT "ManagerBalanceLog_routeId_fkey" FOREIGN KEY ("routeId") REFERENCES "Route"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "Payment" ADD CONSTRAINT "Payment_loanId_fkey" FOREIGN KEY ("loanId") REFERENCES "Loan"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Payment" ADD CONSTRAINT "Payment_scheduleId_fkey" FOREIGN KEY ("scheduleId") REFERENCES "PaymentSchedule"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Payment" ADD CONSTRAINT "Payment_registeredById_fkey" FOREIGN KEY ("registeredById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ManagerBalanceLog" ADD CONSTRAINT "ManagerBalanceLog_routeId_fkey" FOREIGN KEY ("routeId") REFERENCES "Route"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "PushSubscription" ADD CONSTRAINT "PushSubscription_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "PushSubscription" ADD CONSTRAINT "PushSubscription_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;

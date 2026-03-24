@@ -18,19 +18,19 @@ EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
 
-ALTER TABLE "User" ADD COLUMN "address" TEXT;
-ALTER TABLE "User" ADD COLUMN "description" TEXT;
-ALTER TABLE "User" ADD COLUMN "documentId" TEXT;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "address" TEXT;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "description" TEXT;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "documentId" TEXT;
 
-CREATE UNIQUE INDEX "User_documentId_key" ON "User"("documentId");
+CREATE UNIQUE INDEX IF NOT EXISTS "User_documentId_key" ON "User"("documentId");
 
-ALTER TABLE "Payment" ADD COLUMN "method" "PaymentMethod" NOT NULL DEFAULT 'CASH';
-ALTER TABLE "Payment" ADD COLUMN "status" "PaymentStatus" NOT NULL DEFAULT 'ACTIVE';
-ALTER TABLE "Payment" ADD COLUMN "reversedAt" TIMESTAMP(3);
-ALTER TABLE "Payment" ADD COLUMN "reversedById" TEXT;
-ALTER TABLE "Payment" ADD COLUMN "reversalReason" TEXT;
+ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "method" "PaymentMethod" NOT NULL DEFAULT 'CASH';
+ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "status" "PaymentStatus" NOT NULL DEFAULT 'ACTIVE';
+ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "reversedAt" TIMESTAMP(3);
+ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "reversedById" TEXT;
+ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "reversalReason" TEXT;
 
-CREATE TABLE "LiquidationReview" (
+CREATE TABLE IF NOT EXISTS "LiquidationReview" (
     "id" TEXT NOT NULL,
     "managerId" TEXT NOT NULL,
     "businessDate" TEXT NOT NULL,
@@ -44,8 +44,16 @@ CREATE TABLE "LiquidationReview" (
     CONSTRAINT "LiquidationReview_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "LiquidationReview_managerId_businessDate_key" ON "LiquidationReview"("managerId", "businessDate");
+CREATE UNIQUE INDEX IF NOT EXISTS "LiquidationReview_managerId_businessDate_key" ON "LiquidationReview"("managerId", "businessDate");
 
-ALTER TABLE "LiquidationReview" ADD CONSTRAINT "LiquidationReview_managerId_fkey" FOREIGN KEY ("managerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "LiquidationReview" ADD CONSTRAINT "LiquidationReview_managerId_fkey" FOREIGN KEY ("managerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
-ALTER TABLE "LiquidationReview" ADD CONSTRAINT "LiquidationReview_reviewedById_fkey" FOREIGN KEY ("reviewedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "LiquidationReview" ADD CONSTRAINT "LiquidationReview_reviewedById_fkey" FOREIGN KEY ("reviewedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
