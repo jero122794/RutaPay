@@ -1,8 +1,9 @@
 // backend/src/shared/sanitize.ts
-import DOMPurify from "isomorphic-dompurify";
+import striptags from "striptags";
 
 /**
  * Sanitize free-text fields to reduce stored XSS risk (A03).
+ * Uses striptags (no jsdom) — avoids ERR_REQUIRE_ESM from isomorphic-dompurify's stack on Node 18.
  */
 export const sanitizePlainText = (input: string | undefined | null): string | undefined => {
   if (input === undefined || input === null) {
@@ -12,5 +13,5 @@ export const sanitizePlainText = (input: string | undefined | null): string | un
   if (trimmed.length === 0) {
     return undefined;
   }
-  return DOMPurify.sanitize(trimmed, { ALLOWED_TAGS: [] });
+  return striptags(trimmed);
 };
