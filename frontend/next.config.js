@@ -11,7 +11,8 @@ const withPWA = require("next-pwa")({
     {
       // Avoid stale payment payloads (e.g. missing `status`) breaking admin reverse UI.
       urlPattern: /^https?:\/\/.*\/api\/payments/,
-      handler: "NetworkOnly"
+      handler: "NetworkOnly",
+      options: {}
     },
     {
       urlPattern: /^https?:\/\/.*\/api\/.*/,

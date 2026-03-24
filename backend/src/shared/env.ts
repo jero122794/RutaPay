@@ -43,7 +43,13 @@ const envSchema = z
 
     if (isProd) {
       const u = data.DATABASE_URL.toLowerCase();
-      if (!u.includes("sslmode=require") && !u.includes("ssl=true") && !u.includes("sslmode=verify-full")) {
+      // Railway private DB host (postgres.railway.internal) is VPC-only; SSL is not required on the URL.
+      const isRailwayPrivateDb = u.includes("railway.internal");
+      const hasPgSslHint =
+        u.includes("sslmode=require") ||
+        u.includes("ssl=true") ||
+        u.includes("sslmode=verify-full");
+      if (!isRailwayPrivateDb && !hasPgSslHint) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["DATABASE_URL"],
