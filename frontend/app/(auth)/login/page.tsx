@@ -11,7 +11,7 @@ import api, { setAccessToken } from "../../../lib/api";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 
 const loginSchema = z.object({
-  email: z.string().email("Correo inválido"),
+  identifier: z.string().min(3, "Ingresa cédula o correo"),
   password: z.string().min(8, "La contraseña debe tener mínimo 8 caracteres")
 });
 
@@ -39,7 +39,7 @@ const LoginPage = (): JSX.Element => {
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      email: "",
+      identifier: "",
       password: ""
     },
     mode: "onChange"
@@ -72,16 +72,17 @@ const LoginPage = (): JSX.Element => {
 
         <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)}>
           <div>
-            <label htmlFor="email" className="mb-1 block text-sm text-textSecondary">
-              Correo
+            <label htmlFor="identifier" className="mb-1 block text-sm text-textSecondary">
+              Cédula (o correo)
             </label>
             <input
-              id="email"
-              type="email"
+              id="identifier"
+              type="text"
+              placeholder="Ej: 1032456789"
               className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-              {...form.register("email")}
+              {...form.register("identifier")}
             />
-            <p className="mt-1 text-xs text-danger">{form.formState.errors.email?.message}</p>
+            <p className="mt-1 text-xs text-danger">{form.formState.errors.identifier?.message}</p>
           </div>
 
           <div>

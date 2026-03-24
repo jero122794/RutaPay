@@ -29,7 +29,7 @@ export const routesRouter = async (app: FastifyInstance): Promise<void> => {
   );
   app.get(
     "/:id/summary",
-    { preHandler: [authGuard, roleGuard(["ADMIN", "SUPER_ADMIN"])] },
+    { preHandler: [authGuard, roleGuard(["ADMIN", "SUPER_ADMIN", "ROUTE_MANAGER"])] },
     getRouteSummaryController
   );
 };

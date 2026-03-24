@@ -1,5 +1,7 @@
 // backend/src/modules/loans/controller.ts
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { clientIp, userAgentHeader, writeAuditLog } from "../../shared/audit.js";
+import { parseOptionalPaginationQuery } from "../../shared/pagination.schema.js";
 import {
   calculateLoanSchema,
   createLoanSchema,
@@ -18,13 +20,9 @@ const ensureActor = (request: FastifyRequest): { id: string; roles: string[] } =
 
 export const listLoansController = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
   const actor = ensureActor(request);
-  const loans = await loanService.listLoans(actor.id, actor.roles);
-  reply.send({
-    data: loans,
-    total: loans.length,
-    page: 1,
-    limit: loans.length
-  });
+  const pagination = parseOptionalPaginationQuery(request.query);
+  const body = await loanService.listLoans(actor.id, actor.roles, pagination);
+  reply.send(body);
 };
 
 export const calculateLoanController = async (
@@ -43,6 +41,20 @@ export const createLoanController = async (request: FastifyRequest, reply: Fasti
   const actor = ensureActor(request);
   const input = createLoanSchema.parse(request.body);
   const loan = await loanService.createLoan(input, actor.id, actor.roles);
+  await writeAuditLog({
+    userId: actor.id,
+    action: "LOAN_CREATE",
+    resourceType: "loan",
+    resourceId: loan.id,
+    newValue: {
+      routeId: loan.routeId,
+      clientId: loan.clientId,
+      principal: loan.principal,
+      installmentCount: loan.installmentCount
+    },
+    ip: clientIp(request),
+    userAgent: userAgentHeader(request)
+  });
   reply.code(201).send({
     data: loan,
     message: "Loan created successfully."

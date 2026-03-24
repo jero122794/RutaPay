@@ -4,11 +4,13 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import TablePagination from "../../../components/ui/TablePagination";
+import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../lib/page-size";
 import api from "../../../lib/api";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import { formatBogotaDateFromString } from "../../../lib/bogota";
 import { formatCOP } from "../../../lib/formatters";
-import { useMemo } from "react";
 
 interface LoanItem {
   id: string;
@@ -66,13 +68,24 @@ const LoansPage = (): JSX.Element => {
   const role: UserRole = user?.roles[0] ?? "CLIENT";
   const clientDisplayNameForClientRole = role === "CLIENT" ? user?.name ?? "-" : "-";
 
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+
   const loansQuery = useQuery({
-    queryKey: ["loans-list"],
+    queryKey: ["loans-list", page, limit],
     queryFn: async (): Promise<ListResponse<LoanItem>> => {
-      const response = await api.get<ListResponse<LoanItem>>("/loans");
+      const response = await api.get<ListResponse<LoanItem>>("/loans", {
+        params: { page, limit }
+      });
       return response.data;
     }
   });
+
+  useEffect(() => {
+    const d = loansQuery.data;
+    if (!d) return;
+    if (d.page !== page) setPage(d.page);
+  }, [loansQuery.data, page]);
 
   const canCreate = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
 
@@ -133,11 +146,12 @@ const LoansPage = (): JSX.Element => {
 
       {loansQuery.data?.data ? (
         <div className="rounded-xl border border-border bg-surface p-4">
-          {loansQuery.data.data.length === 0 ? (
+          {loansQuery.data.total === 0 ? (
             <div className="rounded-lg border border-border bg-bg p-6">
               <p className="text-sm text-textSecondary">No hay préstamos registrados.</p>
             </div>
           ) : (
+            <>
             <div className="rutapay-table-wrap">
               <table className="rutapay-table">
                 <thead>
@@ -188,6 +202,17 @@ const LoansPage = (): JSX.Element => {
                 </tbody>
               </table>
             </div>
+            <TablePagination
+              page={page}
+              limit={limit}
+              total={loansQuery.data.total}
+              onPageChange={setPage}
+              onLimitChange={(next) => {
+                setLimit(next);
+                setPage(1);
+              }}
+            />
+            </>
           )}
         </div>
       ) : null}

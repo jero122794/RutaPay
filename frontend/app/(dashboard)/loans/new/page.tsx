@@ -6,7 +6,7 @@ import axios from "axios";
 import { parseISO } from "date-fns";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
@@ -15,6 +15,8 @@ import { useAuthStore, type UserRole } from "../../../../store/authStore";
 import { calculateLoan, type LoanFrequency, type LoanInput } from "../../../../lib/loan-calculator";
 import { formatCOP } from "../../../../lib/formatters";
 import { formatBogotaDate, getBogotaYMD } from "../../../../lib/bogota";
+import TablePagination from "../../../../components/ui/TablePagination";
+import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../../lib/page-size";
 
 interface ClientItem {
   id: string;
@@ -37,6 +39,7 @@ interface LoanCreatePayload {
   installmentCount: number;
   frequency: LoanFrequency;
   startDate: string;
+  excludeWeekends: boolean;
 }
 
 const getErrorMessage = (error: unknown): string => {
@@ -50,10 +53,11 @@ const getErrorMessage = (error: unknown): string => {
 const createLoanFormSchema = z.object({
   clientId: z.string().cuid(),
   principal: z.number().int().positive(),
-  interestRate: z.number().positive(),
+  interestRate: z.number().int().positive(),
   installmentCount: z.number().int().positive(),
   frequency: z.enum(["DAILY", "WEEKLY", "BIWEEKLY", "MONTHLY"]),
-  startDate: z.string().min(1)
+  startDate: z.string().min(1),
+  excludeWeekends: z.boolean()
 });
 
 type CreateLoanFormData = z.infer<typeof createLoanFormSchema>;
@@ -84,10 +88,11 @@ const LoansNewPage = (): JSX.Element => {
     defaultValues: {
       clientId: "",
       principal: 0 as number,
-      interestRate: 0.2,
+      interestRate: 20,
       installmentCount: 1,
       frequency: "MONTHLY",
-      startDate: inferredStartDate
+      startDate: inferredStartDate,
+      excludeWeekends: false
     },
     mode: "onChange"
   });
@@ -97,23 +102,40 @@ const LoansNewPage = (): JSX.Element => {
   const interestRate = form.watch("interestRate");
   const installmentCount = form.watch("installmentCount");
   const frequency = form.watch("frequency");
+  const excludeWeekends = form.watch("excludeWeekends");
 
   const preview = useMemo(() => {
     const startDate = parseISO(startDateISO);
 
     const input: LoanInput = {
       principal,
-      interestRate,
+      interestRate: interestRate / 100,
       installmentCount,
       frequency,
-      startDate
+      startDate,
+      excludeWeekends
     };
 
     if (principal <= 0 || installmentCount <= 0 || interestRate <= 0) {
       return null;
     }
     return calculateLoan(input);
-  }, [principal, interestRate, installmentCount, frequency, startDateISO]);
+  }, [principal, interestRate, installmentCount, frequency, startDateISO, excludeWeekends]);
+
+  const [previewPage, setPreviewPage] = useState(1);
+  const [previewLimit, setPreviewLimit] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+  const previewSchedule = preview?.schedule ?? [];
+  const pagedPreviewSchedule = useMemo(() => {
+    const start = (previewPage - 1) * previewLimit;
+    return previewSchedule.slice(start, start + previewLimit);
+  }, [previewSchedule, previewPage, previewLimit]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(previewSchedule.length / previewLimit));
+    if (previewPage > totalPages) {
+      setPreviewPage(totalPages);
+    }
+  }, [previewSchedule.length, previewLimit, previewPage]);
 
   const onSubmit = async (values: CreateLoanFormData): Promise<void> => {
     if (!canCreate) {
@@ -132,7 +154,8 @@ const LoansNewPage = (): JSX.Element => {
       interestRate: values.interestRate,
       installmentCount: values.installmentCount,
       frequency: values.frequency,
-      startDate: values.startDate
+      startDate: values.startDate,
+      excludeWeekends: values.excludeWeekends
     };
 
     try {
@@ -220,12 +243,12 @@ const LoansNewPage = (): JSX.Element => {
 
           <div>
             <label htmlFor="interestRate" className="mb-1 block text-sm text-textSecondary">
-              Tasa de interés (decimal, ej 0.20)
+              Tasa de interés (%, ej 10 o 20)
             </label>
             <input
               id="interestRate"
               type="number"
-              step={0.01}
+              step={1}
               className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
               {...form.register("interestRate", { valueAsNumber: true })}
             />
@@ -275,6 +298,13 @@ const LoansNewPage = (): JSX.Element => {
             />
             <p className="mt-1 text-xs text-danger">{form.formState.errors.startDate?.message}</p>
           </div>
+
+          {frequency === "DAILY" ? (
+            <label className="flex items-center justify-between gap-3 rounded-md border border-border bg-bg px-3 py-2 text-sm text-textSecondary">
+              Excluir sábados y domingos (solo lunes a viernes)
+              <input type="checkbox" {...form.register("excludeWeekends")} />
+            </label>
+          ) : null}
 
           <button
             type="submit"
@@ -327,7 +357,7 @@ const LoansNewPage = (): JSX.Element => {
                     </tr>
                   </thead>
                   <tbody>
-                    {preview.schedule.map((item) => (
+                    {pagedPreviewSchedule.map((item) => (
                       <tr key={item.installmentNumber} className="border-t border-border">
                         <td className="px-2 py-2 text-sm text-textSecondary">{item.installmentNumber}</td>
                         <td className="px-2 py-2 text-sm text-textSecondary">
@@ -341,6 +371,18 @@ const LoansNewPage = (): JSX.Element => {
                   </tbody>
                 </table>
               </div>
+              {previewSchedule.length > 0 ? (
+                <TablePagination
+                  page={previewPage}
+                  limit={previewLimit}
+                  total={previewSchedule.length}
+                  onPageChange={setPreviewPage}
+                  onLimitChange={(next) => {
+                    setPreviewLimit(next);
+                    setPreviewPage(1);
+                  }}
+                />
+              ) : null}
             </div>
           )}
         </aside>

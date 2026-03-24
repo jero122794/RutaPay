@@ -10,10 +10,11 @@ export const createLoanSchema = z.object({
   clientId: z.string().cuid(),
   managerId: z.string().cuid().optional(),
   principal: z.number().int().positive(),
-  interestRate: z.number().positive(),
+  interestRate: z.number().int().positive(),
   installmentCount: z.number().int().positive(),
   frequency: z.enum(["DAILY", "WEEKLY", "BIWEEKLY", "MONTHLY"]),
-  startDate: z.coerce.date()
+  startDate: z.coerce.date(),
+  excludeWeekends: z.boolean().optional().default(false)
 });
 
 export const calculateLoanSchema = createLoanSchema.omit({

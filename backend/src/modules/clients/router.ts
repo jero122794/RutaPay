@@ -27,7 +27,7 @@ export const clientsRouter = async (app: FastifyInstance): Promise<void> => {
   );
   app.patch(
     "/:id",
-    { preHandler: [authGuard, roleGuard(["ROUTE_MANAGER", "ADMIN"])] },
+    { preHandler: [authGuard, roleGuard(["ROUTE_MANAGER", "ADMIN", "SUPER_ADMIN"])] },
     updateClientController
   );
 };

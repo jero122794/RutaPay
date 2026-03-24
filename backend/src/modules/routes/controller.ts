@@ -1,5 +1,6 @@
 // backend/src/modules/routes/controller.ts
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { parseOptionalPaginationQuery } from "../../shared/pagination.schema.js";
 import { addBalanceSchema, createRouteSchema, routeIdParamsSchema, updateRouteSchema } from "./schema.js";
 import * as routeService from "./service.js";
 
@@ -15,25 +16,17 @@ const ensureActor = (request: FastifyRequest): { id: string; roles: string[] } =
   };
 };
 
-export const listRoutesController = async (_request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-  const routes = await routeService.listRoutes();
-  reply.send({
-    data: routes,
-    total: routes.length,
-    page: 1,
-    limit: routes.length
-  });
+export const listRoutesController = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+  const pagination = parseOptionalPaginationQuery(request.query);
+  const body = await routeService.listRoutes(pagination);
+  reply.send(body);
 };
 
 export const listMyRoutesController = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
   const actor = ensureActor(request);
-  const routes = await routeService.listRoutesByManagerId(actor.id);
-  reply.send({
-    data: routes,
-    total: routes.length,
-    page: 1,
-    limit: routes.length
-  });
+  const pagination = parseOptionalPaginationQuery(request.query);
+  const body = await routeService.listRoutesByManagerId(actor.id, pagination);
+  reply.send(body);
 };
 
 export const createRouteController = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
@@ -88,8 +81,9 @@ export const getRouteSummaryController = async (
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> => {
+  const actor = ensureActor(request);
   const { id } = routeIdParamsSchema.parse(request.params);
-  const summary = await routeService.getRouteSummary(id);
+  const summary = await routeService.getRouteSummary(id, actor.id, actor.roles);
   reply.send({
     data: summary
   });

@@ -1,7 +1,21 @@
 // backend/src/modules/auth/controller.ts
-import type { FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyError, FastifyReply, FastifyRequest } from "fastify";
+import {
+  clientIp,
+  maskIdentifierTail,
+  userAgentHeader,
+  writeAuditLog
+} from "../../shared/audit.js";
 import { loginSchema, refreshSchema, registerSchema } from "./schema.js";
 import * as authService from "./service.js";
+
+export const listRegisterRoutesController = async (
+  _request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> => {
+  const routes = await authService.listRoutesForRegistration();
+  reply.send({ data: routes });
+};
 
 const refreshCookieOptions = {
   httpOnly: true,
@@ -22,6 +36,17 @@ export const registerController = async (
     maxAge: 7 * 24 * 60 * 60
   });
 
+  const ip = clientIp(request);
+  const ua = userAgentHeader(request);
+  await writeAuditLog({
+    userId: result.user.id,
+    action: "REGISTER_SUCCESS",
+    resourceType: "auth",
+    resourceId: result.user.id,
+    ip,
+    userAgent: ua
+  });
+
   reply.code(201).send({
     data: {
       user: result.user,
@@ -33,20 +58,57 @@ export const registerController = async (
 
 export const loginController = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
   const input = loginSchema.parse(request.body);
-  const result = await authService.login(input);
+  const ip = clientIp(request);
+  const ua = userAgentHeader(request);
 
-  reply.setCookie("refreshToken", result.tokens.refreshToken, {
-    ...refreshCookieOptions,
-    maxAge: 7 * 24 * 60 * 60
-  });
+  try {
+    const result = await authService.login(input, { ip, userAgent: ua });
 
-  reply.send({
-    data: {
-      user: result.user,
-      accessToken: result.tokens.accessToken
-    },
-    message: "Login successful."
-  });
+    await writeAuditLog({
+      userId: result.user.id,
+      action: "LOGIN_SUCCESS",
+      resourceType: "auth",
+      resourceId: result.user.id,
+      ip,
+      userAgent: ua
+    });
+
+    reply.setCookie("refreshToken", result.tokens.refreshToken, {
+      ...refreshCookieOptions,
+      maxAge: 7 * 24 * 60 * 60
+    });
+
+    reply.send({
+      data: {
+        user: result.user,
+        accessToken: result.tokens.accessToken
+      },
+      message: "Login successful."
+    });
+  } catch (error) {
+    const err = error as FastifyError;
+    if (err.statusCode === 401) {
+      await writeAuditLog({
+        userId: null,
+        action: "LOGIN_FAILED",
+        resourceType: "auth",
+        newValue: { identifierSuffix: maskIdentifierTail(input.identifier) },
+        ip,
+        userAgent: ua
+      });
+    }
+    if (err.statusCode === 429) {
+      await writeAuditLog({
+        userId: null,
+        action: "LOGIN_RATE_LIMITED",
+        resourceType: "auth",
+        newValue: { identifierSuffix: maskIdentifierTail(input.identifier) },
+        ip,
+        userAgent: ua
+      });
+    }
+    throw error;
+  }
 };
 
 export const refreshController = async (
@@ -81,8 +143,21 @@ export const logoutController = async (
   reply: FastifyReply
 ): Promise<void> => {
   const cookieToken = request.cookies.refreshToken;
+  const ip = clientIp(request);
+  const ua = userAgentHeader(request);
+
   if (cookieToken) {
-    await authService.logout(cookieToken);
+    const { userId } = await authService.logout(cookieToken);
+    if (userId) {
+      await writeAuditLog({
+        userId,
+        action: "LOGOUT",
+        resourceType: "auth",
+        resourceId: userId,
+        ip,
+        userAgent: ua
+      });
+    }
   }
 
   reply.clearCookie("refreshToken", {

@@ -9,7 +9,17 @@ export const createPaymentSchema = z.object({
   loanId: z.string().cuid(),
   scheduleId: z.string().cuid().optional(),
   amount: z.number().int().positive(),
+  method: z.enum(["CASH", "TRANSFER"]),
   notes: z.string().max(300).optional()
 });
 
+export const paymentIdParamsSchema = z.object({
+  id: z.string().cuid()
+});
+
+export const reversePaymentSchema = z.object({
+  reason: z.string().max(300).optional()
+});
+
 export type CreatePaymentInput = z.infer<typeof createPaymentSchema>;
+export type ReversePaymentInput = z.infer<typeof reversePaymentSchema>;

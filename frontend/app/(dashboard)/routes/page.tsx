@@ -3,7 +3,10 @@
 
 import axios from "axios";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import TablePagination from "../../../components/ui/TablePagination";
+import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../lib/page-size";
 import api from "../../../lib/api";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import { formatCOP } from "../../../lib/formatters";
@@ -19,6 +22,7 @@ interface RouteItem {
   id: string;
   name: string;
   managerId: string;
+  managerName: string;
   balance: number;
   createdAt: Date;
   updatedAt: Date;
@@ -39,17 +43,29 @@ const getErrorMessage = (error: unknown): string => {
 const RoutesPage = (): JSX.Element => {
   const user = useAuthStore((state) => state.user);
   const role: UserRole = user?.roles[0] ?? "CLIENT";
-  const canView = role === "ADMIN" || role === "SUPER_ADMIN";
-  const canCreate = canView;
+  const canView = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
+  const canCreate = role === "ADMIN" || role === "SUPER_ADMIN";
+  const routesEndpoint = role === "ROUTE_MANAGER" ? "/routes/me" : "/routes";
+
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState<PageSize>(DEFAULT_PAGE_SIZE);
 
   const routesQuery = useQuery({
-    queryKey: ["routes-list"],
+    queryKey: ["routes-list", role, page, limit],
     queryFn: async (): Promise<ListResponse<RouteItem>> => {
-      const response = await api.get<ListResponse<RouteItem>>("/routes");
+      const response = await api.get<ListResponse<RouteItem>>(routesEndpoint, {
+        params: { page, limit }
+      });
       return response.data;
     },
     enabled: canView
   });
+
+  useEffect(() => {
+    const d = routesQuery.data;
+    if (!d) return;
+    if (d.page !== page) setPage(d.page);
+  }, [routesQuery.data, page]);
 
   if (!canView) {
     return (
@@ -93,11 +109,12 @@ const RoutesPage = (): JSX.Element => {
 
       {routesQuery.data ? (
         <div className="rounded-xl border border-border bg-surface p-4">
-          {routesQuery.data.data.length === 0 ? (
+          {routesQuery.data.total === 0 ? (
             <div className="rounded-lg border border-border bg-bg p-6">
               <p className="text-sm text-textSecondary">No hay rutas registradas.</p>
             </div>
           ) : (
+            <>
             <div className="rutapay-table-wrap">
               <table className="rutapay-table">
                 <thead>
@@ -120,7 +137,7 @@ const RoutesPage = (): JSX.Element => {
                   {routesQuery.data.data.map((r) => (
                     <tr key={r.id} className="border-t border-border">
                       <td className="px-3 py-3 text-sm font-medium text-textPrimary">{r.name}</td>
-                      <td className="px-3 py-3 text-sm text-textSecondary">{r.managerId}</td>
+                      <td className="px-3 py-3 text-sm text-textSecondary">{r.managerName}</td>
                       <td className="px-3 py-3 text-right text-sm text-textPrimary">{formatCOP(r.balance)}</td>
                       <td className="px-3 py-3 text-right">
                         <Link
@@ -135,6 +152,17 @@ const RoutesPage = (): JSX.Element => {
                 </tbody>
               </table>
             </div>
+            <TablePagination
+              page={page}
+              limit={limit}
+              total={routesQuery.data.total}
+              onPageChange={setPage}
+              onLimitChange={(next) => {
+                setLimit(next);
+                setPage(1);
+              }}
+            />
+            </>
           )}
         </div>
       ) : null}

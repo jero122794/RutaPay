@@ -1,17 +1,33 @@
--- CreateEnum
-CREATE TYPE "RoleName" AS ENUM ('SUPER_ADMIN', 'ADMIN', 'ROUTE_MANAGER', 'CLIENT');
+-- CreateEnum (idempotent: safe if enums already exist from `prisma db push` or a partial run)
+DO $$ BEGIN
+  CREATE TYPE "RoleName" AS ENUM ('SUPER_ADMIN', 'ADMIN', 'ROUTE_MANAGER', 'CLIENT');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "Frequency" AS ENUM ('DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY');
+DO $$ BEGIN
+  CREATE TYPE "Frequency" AS ENUM ('DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "LoanStatus" AS ENUM ('ACTIVE', 'COMPLETED', 'DEFAULTED', 'RESTRUCTURED');
+DO $$ BEGIN
+  CREATE TYPE "LoanStatus" AS ENUM ('ACTIVE', 'COMPLETED', 'DEFAULTED', 'RESTRUCTURED');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "ScheduleStatus" AS ENUM ('PENDING', 'PAID', 'OVERDUE', 'PARTIAL');
+DO $$ BEGIN
+  CREATE TYPE "ScheduleStatus" AS ENUM ('PENDING', 'PAID', 'OVERDUE', 'PARTIAL');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "BalanceType" AS ENUM ('CREDIT', 'DEBIT');
+DO $$ BEGIN
+  CREATE TYPE "BalanceType" AS ENUM ('CREDIT', 'DEBIT');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
 -- CreateTable
 CREATE TABLE "User" (

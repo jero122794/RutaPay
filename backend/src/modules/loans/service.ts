@@ -1,6 +1,9 @@
 // backend/src/modules/loans/service.ts
 import type { LoanStatus, Prisma } from "@prisma/client";
 import { calculateLoan } from "../../shared/loan-calculator.js";
+import { assertLoanAccessForActor, loanRowWithoutRoute } from "../../shared/loan-ownership.js";
+import type { PaginationQuery } from "../../shared/pagination.schema.js";
+import { prismaPaginationBounds } from "../../shared/pagination.schema.js";
 import { prisma } from "../../shared/prisma.js";
 import type { CalculateLoanInput, CreateLoanInput, UpdateLoanStatusInput } from "./schema.js";
 
@@ -81,28 +84,11 @@ const frequencyDays: Record<"DAILY" | "WEEKLY" | "BIWEEKLY" | "MONTHLY", number>
   MONTHLY: 30
 };
 
-const ensureLoanAccess = async (
-  loanId: string,
+export const listLoans = async (
   actorId: string,
-  actorRoles: string[]
-): Promise<LoanView> => {
-  const loan = await prisma.loan.findUnique({ where: { id: loanId } });
-  if (!loan) {
-    throw new Error("Loan not found.");
-  }
-
-  const isPrivileged = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
-  const isManagerOwner = actorRoles.includes("ROUTE_MANAGER") && loan.managerId === actorId;
-  const isClientOwner = actorRoles.includes("CLIENT") && loan.clientId === actorId;
-
-  if (!isPrivileged && !isManagerOwner && !isClientOwner) {
-    throw new Error("You do not have access to this loan.");
-  }
-
-  return mapLoan(loan);
-};
-
-export const listLoans = async (actorId: string, actorRoles: string[]): Promise<LoanView[]> => {
+  actorRoles: string[],
+  pagination: PaginationQuery | null
+): Promise<{ data: LoanView[]; total: number; page: number; limit: number }> => {
   const isPrivileged = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
   const where = isPrivileged
     ? {}
@@ -110,21 +96,34 @@ export const listLoans = async (actorId: string, actorRoles: string[]): Promise<
       ? { managerId: actorId }
       : { clientId: actorId };
 
+  const total = await prisma.loan.count({ where });
+
+  if (!pagination) {
+    const loans = await prisma.loan.findMany({
+      where,
+      orderBy: { createdAt: "desc" }
+    });
+    return { data: loans.map(mapLoan), total, page: 1, limit: total };
+  }
+
+  const { skip, take, page } = prismaPaginationBounds(total, pagination.page, pagination.limit);
   const loans = await prisma.loan.findMany({
     where,
-    orderBy: { createdAt: "desc" }
+    orderBy: { createdAt: "desc" },
+    skip,
+    take
   });
-
-  return loans.map(mapLoan);
+  return { data: loans.map(mapLoan), total, page, limit: pagination.limit };
 };
 
 export const calculateLoanPreview = (input: CalculateLoanInput) => {
   return calculateLoan({
     principal: input.principal,
-    interestRate: input.interestRate,
+    interestRate: input.interestRate / 100,
     installmentCount: input.installmentCount,
     frequency: input.frequency,
-    startDate: input.startDate
+    startDate: input.startDate,
+    excludeWeekends: input.excludeWeekends ?? false
   });
 };
 
@@ -163,10 +162,14 @@ export const createLoan = async (
     interestRate: input.interestRate,
     installmentCount: input.installmentCount,
     frequency: input.frequency,
-    startDate: input.startDate
+    startDate: input.startDate,
+    excludeWeekends: input.excludeWeekends ?? false
   });
 
-  const termDays = frequencyDays[input.frequency] * input.installmentCount;
+  const termDays = Math.max(
+    1,
+    Math.round((preview.endDate.getTime() - input.startDate.getTime()) / (24 * 60 * 60 * 1000))
+  );
 
   const createdLoan = await prisma.$transaction(async (tx) => {
     const loan = await tx.loan.create({
@@ -175,7 +178,7 @@ export const createLoan = async (
         clientId: input.clientId,
         managerId,
         principal: input.principal,
-        interestRate: input.interestRate,
+        interestRate: input.interestRate / 100,
         termDays,
         frequency: input.frequency,
         installmentCount: input.installmentCount,
@@ -207,7 +210,10 @@ export const getLoanById = async (
   id: string,
   actorId: string,
   actorRoles: string[]
-): Promise<LoanView> => ensureLoanAccess(id, actorId, actorRoles);
+): Promise<LoanView> => {
+  const loan = await assertLoanAccessForActor(id, actorId, actorRoles);
+  return mapLoan(loanRowWithoutRoute(loan));
+};
 
 export const updateLoanStatus = async (
   id: string,
@@ -225,7 +231,7 @@ export const getLoanSchedule = async (
   actorId: string,
   actorRoles: string[]
 ): Promise<ScheduleView[]> => {
-  await ensureLoanAccess(loanId, actorId, actorRoles);
+  await assertLoanAccessForActor(loanId, actorId, actorRoles);
 
   const schedule = await prisma.paymentSchedule.findMany({
     where: { loanId },

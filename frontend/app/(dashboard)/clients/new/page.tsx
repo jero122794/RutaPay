@@ -5,11 +5,12 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import axios from "axios";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useQuery } from "@tanstack/react-query";
 import api from "../../../../lib/api";
+import { getEffectiveRoles } from "../../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../../store/authStore";
 
 interface RouteItem {
@@ -36,6 +37,9 @@ const createClientSchema = z.object({
   name: z.string().min(2).max(100),
   email: z.string().email(),
   phone: z.string().min(7).max(20).optional().or(z.literal("").transform(() => undefined)),
+  address: z.string().min(5, "Dirección requerida"),
+  description: z.string().min(3, "Descripción requerida"),
+  documentId: z.string().min(5, "Documento requerido"),
   password: z
     .string()
     .min(8)
@@ -52,11 +56,13 @@ type CreateClientFormData = z.infer<typeof createClientSchema>;
 const ClientsNewPage = (): JSX.Element => {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const roles = useMemo((): UserRole[] => getEffectiveRoles(user), [user?.roles, user?.id]);
+  const hasRole = (r: UserRole): boolean => roles.includes(r);
 
-  const canCreate = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
-  const isAdminView = role === "ADMIN" || role === "SUPER_ADMIN";
-  const isRouteManagerView = role === "ROUTE_MANAGER";
+  const canCreate =
+    hasRole("ADMIN") || hasRole("SUPER_ADMIN") || hasRole("ROUTE_MANAGER");
+  const isAdminView = hasRole("ADMIN") || hasRole("SUPER_ADMIN");
+  const isRouteManagerView = hasRole("ROUTE_MANAGER");
 
   const routesQuery = useQuery({
     queryKey: [isAdminView ? "routes-list" : "routes-me-for-client-create"],
@@ -77,6 +83,9 @@ const ClientsNewPage = (): JSX.Element => {
       name: "",
       email: "",
       phone: "",
+      address: "",
+      description: "",
+      documentId: "",
       password: "",
       routeId: isAdminView ? "" : defaultRouteIdForManager
     },
@@ -109,6 +118,9 @@ const ClientsNewPage = (): JSX.Element => {
         name: values.name,
         email: values.email,
         phone: values.phone ? values.phone : undefined,
+        address: values.address,
+        description: values.description,
+        documentId: values.documentId,
         password: values.password,
         routeId
       });
@@ -158,7 +170,7 @@ const ClientsNewPage = (): JSX.Element => {
           <p className="text-sm text-danger">No fue posible cargar las rutas.</p>
         ) : null}
 
-        {((!isAdminView && !isRouteManagerView) || routesQuery.data) ? (
+        {routesQuery.isSuccess || routesQuery.isError ? (
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)}>
             <div>
               <label htmlFor="name" className="mb-1 block text-sm text-textSecondary">
@@ -197,6 +209,18 @@ const ClientsNewPage = (): JSX.Element => {
             </div>
 
             <div>
+              <label htmlFor="documentId" className="mb-1 block text-sm text-textSecondary">
+                Documento de identidad
+              </label>
+              <input
+                id="documentId"
+                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+                {...form.register("documentId")}
+              />
+              <p className="mt-1 text-xs text-danger">{form.formState.errors.documentId?.message}</p>
+            </div>
+
+            <div>
               <label htmlFor="password" className="mb-1 block text-sm text-textSecondary">
                 Contraseña
               </label>
@@ -207,6 +231,31 @@ const ClientsNewPage = (): JSX.Element => {
                 {...form.register("password")}
               />
               <p className="mt-1 text-xs text-danger">{form.formState.errors.password?.message}</p>
+            </div>
+
+            <div>
+              <label htmlFor="address" className="mb-1 block text-sm text-textSecondary">
+                Dirección
+              </label>
+              <input
+                id="address"
+                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+                {...form.register("address")}
+              />
+              <p className="mt-1 text-xs text-danger">{form.formState.errors.address?.message}</p>
+            </div>
+
+            <div>
+              <label htmlFor="description" className="mb-1 block text-sm text-textSecondary">
+                Descripción
+              </label>
+              <textarea
+                id="description"
+                rows={3}
+                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+                {...form.register("description")}
+              />
+              <p className="mt-1 text-xs text-danger">{form.formState.errors.description?.message}</p>
             </div>
 
             {isAdminView || isRouteManagerView ? (

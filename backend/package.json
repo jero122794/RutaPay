@@ -4,13 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "prisma generate",
     "dev": "tsx watch src/server.ts",
+    "postinstall": "prisma generate",
     "build": "npx prisma generate && tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "audit:high": "npm audit --audit-level=high",
+    "test:security": "node --import tsx --test src/tests/security/token-hash.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -26,6 +30,7 @@
     "dotenv": "^16.4.5",
     "fastify": "^4.28.1",
     "ioredis": "^5.4.1",
+    "isomorphic-dompurify": "^2.30.0",
     "jsonwebtoken": "^9.0.2",
     "node-cron": "^3.0.3",
     "pino": "^9.6.0",

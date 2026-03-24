@@ -24,5 +24,7 @@ declare module "fastify" {
       email: string;
       roles: string[];
     };
+    /** Set by payment idempotency preHandler; consumed by global onSend/onResponse hooks. */
+    idempotencyRedisKey?: string;
   }
 }

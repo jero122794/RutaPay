@@ -1,12 +1,14 @@
 // frontend/app/(dashboard)/users/page.tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import Link from "next/link";
+import TablePagination from "../../../components/ui/TablePagination";
+import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../lib/page-size";
 import api from "../../../lib/api";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -49,15 +51,32 @@ const UsersPage = (): JSX.Element => {
   const queryClient = useQueryClient();
 
   const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState<PageSize>(DEFAULT_PAGE_SIZE);
 
   const usersQuery = useQuery({
-    queryKey: ["users-list"],
+    queryKey: ["users-list", page, limit],
     queryFn: async (): Promise<ListResponse<UserItem>> => {
-      const response = await api.get<ListResponse<UserItem>>("/users");
+      const response = await api.get<ListResponse<UserItem>>("/users", {
+        params: { page, limit }
+      });
       return response.data;
     },
-    enabled: role === "SUPER_ADMIN"
+    enabled: role === "SUPER_ADMIN" || role === "ADMIN"
   });
+
+  useEffect(() => {
+    const d = usersQuery.data;
+    if (!d) return;
+    if (d.page !== page) setPage(d.page);
+  }, [usersQuery.data, page]);
+
+  useEffect(() => {
+    const list = usersQuery.data?.data ?? [];
+    if (selectedUserId && !list.some((u) => u.id === selectedUserId)) {
+      setSelectedUserId("");
+    }
+  }, [usersQuery.data?.data, selectedUserId]);
 
   const allRoles = useMemo(() => ["SUPER_ADMIN", "ADMIN", "ROUTE_MANAGER", "CLIENT"] as const, []);
 
@@ -88,6 +107,15 @@ const UsersPage = (): JSX.Element => {
       await queryClient.invalidateQueries({ queryKey: ["users-list"] });
     }
   });
+  const deleteUserMutation = useMutation({
+    mutationFn: async (userId: string): Promise<void> => {
+      await api.delete(`/users/${userId}`);
+    },
+    onSuccess: async () => {
+      setSelectedUserId("");
+      await queryClient.invalidateQueries({ queryKey: ["users-list"] });
+    }
+  });
 
   const selectedUser = useMemo<UserItem | null>(() => {
     const list = usersQuery.data?.data ?? [];
@@ -95,6 +123,8 @@ const UsersPage = (): JSX.Element => {
   }, [selectedUserId, usersQuery.data]);
 
   const canManage = role === "SUPER_ADMIN";
+  const canDeleteUsers = role === "SUPER_ADMIN" || role === "ADMIN";
+  const selectedIsClient = selectedUser?.roles.includes("CLIENT") ?? false;
 
   return (
     <section className="space-y-4">
@@ -110,13 +140,13 @@ const UsersPage = (): JSX.Element => {
         </div>
       </header>
 
-      {role !== "SUPER_ADMIN" ? (
+      {role !== "SUPER_ADMIN" && role !== "ADMIN" ? (
         <div className="rounded-xl border border-border bg-surface p-6">
           <p className="text-sm text-danger">No tienes permisos para gestionar usuarios.</p>
         </div>
       ) : null}
 
-      {role === "SUPER_ADMIN" ? (
+      {role === "SUPER_ADMIN" || role === "ADMIN" ? (
         <>
           {usersQuery.isLoading ? (
             <div className="rounded-xl border border-border bg-surface p-6">
@@ -134,7 +164,7 @@ const UsersPage = (): JSX.Element => {
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
               <div className="space-y-4 xl:col-span-2">
                 <div className="rutapay-table-wrap">
-                  {usersQuery.data.data.length === 0 ? (
+                  {usersQuery.data.total === 0 ? (
                     <p className="p-4 text-sm text-textSecondary">No hay usuarios.</p>
                   ) : (
                     <table className="rutapay-table">
@@ -202,6 +232,18 @@ const UsersPage = (): JSX.Element => {
                     </table>
                   )}
                 </div>
+                {usersQuery.data.total > 0 ? (
+                  <TablePagination
+                    page={page}
+                    limit={limit}
+                    total={usersQuery.data.total}
+                    onPageChange={setPage}
+                    onLimitChange={(next) => {
+                      setLimit(next);
+                      setPage(1);
+                    }}
+                  />
+                ) : null}
               </div>
 
               <aside className="space-y-4 xl:col-span-1">
@@ -214,6 +256,18 @@ const UsersPage = (): JSX.Element => {
                       <p className="text-sm text-textSecondary">
                         Usuario: <span className="text-textPrimary">{selectedUser.name}</span>
                       </p>
+                      {selectedIsClient ? (
+                        <Link
+                          href={`/clients/${selectedUser.id}`}
+                          className="block w-full rounded-md border border-border px-3 py-2 text-center text-sm hover:bg-bg"
+                        >
+                          Ir al detalle del cliente para editar
+                        </Link>
+                      ) : (
+                        <p className="text-xs text-textSecondary">
+                          La edición de datos del cliente se realiza desde el detalle de cliente.
+                        </p>
+                      )}
 
                       <div className="space-y-2">
                         {allRoles.map((r) => {
@@ -259,6 +313,25 @@ const UsersPage = (): JSX.Element => {
                           {getErrorMessage(assignRolesMutation.error)}
                         </p>
                       ) : null}
+
+                      <div className="mt-4 space-y-3 border-t border-border pt-4">
+                        <button
+                          type="button"
+                          disabled={!canDeleteUsers || deleteUserMutation.isPending}
+                          onClick={async () => {
+                            if (!selectedUserId) return;
+                            const confirmed = window.confirm("¿Seguro que deseas eliminar este usuario?");
+                            if (!confirmed) return;
+                            await deleteUserMutation.mutateAsync(selectedUserId);
+                          }}
+                          className="w-full rounded-md bg-danger px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                        >
+                          {deleteUserMutation.isPending ? "Eliminando..." : "Eliminar usuario"}
+                        </button>
+                        {deleteUserMutation.isError ? (
+                          <p className="text-sm text-danger">{getErrorMessage(deleteUserMutation.error)}</p>
+                        ) : null}
+                      </div>
                     </div>
                   ) : (
                     <p className="mt-4 text-sm text-textSecondary">Aún no has seleccionado un usuario.</p>

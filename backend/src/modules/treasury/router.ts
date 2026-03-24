@@ -3,9 +3,14 @@ import type { FastifyInstance } from "fastify";
 import { authGuard } from "../../middleware/auth.middleware.js";
 import { roleGuard } from "../../middleware/role.middleware.js";
 import {
+  approveLiquidationReviewController,
   creditRouteController,
   getLiquidationController,
-  getRouteBalanceController
+  getMyLiquidationReviewController,
+  getRouteBalanceController,
+  listLiquidationReviewsController,
+  rejectLiquidationReviewController,
+  submitLiquidationReviewController
 } from "./controller.js";
 
 export const treasuryRouter = async (app: FastifyInstance): Promise<void> => {
@@ -21,7 +26,32 @@ export const treasuryRouter = async (app: FastifyInstance): Promise<void> => {
   );
   app.get(
     "/liquidation/:id",
-    { preHandler: [authGuard, roleGuard(["ADMIN", "SUPER_ADMIN"])] },
+    { preHandler: [authGuard, roleGuard(["ADMIN", "SUPER_ADMIN", "ROUTE_MANAGER"])] },
     getLiquidationController
+  );
+  app.get(
+    "/liquidation-reviews",
+    { preHandler: [authGuard, roleGuard(["ADMIN", "SUPER_ADMIN"])] },
+    listLiquidationReviewsController
+  );
+  app.get(
+    "/liquidation-reviews/me",
+    { preHandler: [authGuard, roleGuard(["ROUTE_MANAGER"])] },
+    getMyLiquidationReviewController
+  );
+  app.post(
+    "/liquidation-reviews/submit",
+    { preHandler: [authGuard, roleGuard(["ROUTE_MANAGER"])] },
+    submitLiquidationReviewController
+  );
+  app.post(
+    "/liquidation-reviews/:managerId/approve",
+    { preHandler: [authGuard, roleGuard(["ADMIN", "SUPER_ADMIN"])] },
+    approveLiquidationReviewController
+  );
+  app.post(
+    "/liquidation-reviews/:managerId/reject",
+    { preHandler: [authGuard, roleGuard(["ADMIN", "SUPER_ADMIN"])] },
+    rejectLiquidationReviewController
   );
 };

@@ -175,13 +175,17 @@ export const Topbar = ({ onToggleTabletSidebar }: TopbarProps): JSX.Element => {
           <div className="ml-auto flex items-center gap-2">
             <Link
               href="/notifications"
-              className="relative inline-flex h-10 w-10 items-center justify-center rounded-full hover:bg-white/10"
+              className={[
+                "relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full hover:bg-white/10",
+                pathname.startsWith("/notifications") ? "bg-primary/15 text-primary" : "text-on-surface"
+              ].join(" ")}
               aria-label="Ir a alertas"
+              aria-current={pathname.startsWith("/notifications") ? "page" : undefined}
             >
               <BellIcon />
               {unreadCount > 0 ? (
                 <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-danger px-1 text-[11px] font-bold text-white">
-                  {unreadCount}
+                  {unreadCount > 9 ? "9+" : unreadCount}
                 </span>
               ) : null}
             </Link>
@@ -207,13 +211,17 @@ export const Topbar = ({ onToggleTabletSidebar }: TopbarProps): JSX.Element => {
           <div className="flex items-center gap-3">
             <Link
               href="/notifications"
-              className="relative inline-flex h-10 w-10 items-center justify-center rounded-full hover:bg-white/10"
+              className={[
+                "relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full hover:bg-white/10",
+                pathname.startsWith("/notifications") ? "bg-primary/15 text-primary" : "text-on-surface"
+              ].join(" ")}
               aria-label="Ir a alertas"
+              aria-current={pathname.startsWith("/notifications") ? "page" : undefined}
             >
               <BellIcon />
               {unreadCount > 0 ? (
                 <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-danger px-1 text-[11px] font-bold text-white">
-                  {unreadCount}
+                  {unreadCount > 9 ? "9+" : unreadCount}
                 </span>
               ) : null}
             </Link>
@@ -254,13 +262,17 @@ export const Topbar = ({ onToggleTabletSidebar }: TopbarProps): JSX.Element => {
           <div className="flex items-center gap-3">
             <Link
               href="/notifications"
-              className="relative inline-flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10"
+              className={[
+                "relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10",
+                pathname.startsWith("/notifications") ? "bg-primary/15 text-primary" : "text-on-surface"
+              ].join(" ")}
               aria-label="Ir a alertas"
+              aria-current={pathname.startsWith("/notifications") ? "page" : undefined}
             >
               <BellIcon />
               {unreadCount > 0 ? (
                 <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-danger px-1 text-[11px] font-bold text-white">
-                  {unreadCount}
+                  {unreadCount > 9 ? "9+" : unreadCount}
                 </span>
               ) : null}
             </Link>

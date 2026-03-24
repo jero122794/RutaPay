@@ -1,14 +1,17 @@
 // frontend/app/(dashboard)/payments/page.tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import TablePagination from "../../../components/ui/TablePagination";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
+import { getEffectiveRoles } from "../../../lib/effective-roles";
+import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../lib/page-size";
 import api from "../../../lib/api";
 import { formatCOP } from "../../../lib/formatters";
 import { formatBogotaDateFromString } from "../../../lib/bogota";
@@ -50,9 +53,16 @@ interface ScheduleResponse {
 interface PaymentItem {
   id: string;
   loanId: string;
+  clientId: string;
+  clientName: string;
   scheduleId: string | null;
   amount: number;
+  method: "CASH" | "TRANSFER";
+  status: "ACTIVE" | "REVERSED";
   notes: string | null;
+  reversedAt: string | null;
+  reversedById: string | null;
+  reversalReason: string | null;
   createdAt: string;
 }
 
@@ -101,20 +111,37 @@ const scheduleStatusBadge = (status: ScheduleItem["status"]): JSX.Element => {
 
 interface PaymentFormValues {
   amount: number;
+  method: "CASH" | "TRANSFER";
   notes?: string;
 }
 
 const paymentFormSchema = z.object({
   amount: z.number().int().positive(),
+  method: z.enum(["CASH", "TRANSFER"]),
   notes: z.string().max(300).optional()
 });
 
 const PaymentsPage = (): JSX.Element => {
+  const [clientReady, setClientReady] = useState(false);
+  useEffect(() => {
+    setClientReady(true);
+  }, []);
+
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  // Avoid hydration mismatch: server has no localStorage/JWT merge; first paint must match server.
+  const roles = useMemo((): UserRole[] => {
+    if (!clientReady) {
+      return [];
+    }
+    return getEffectiveRoles(user);
+  }, [clientReady, user?.roles, user?.id]);
+  const hasRole = (r: UserRole): boolean => roles.includes(r);
+  const rolesCacheKey = useMemo(() => [...roles].sort().join(","), [roles]);
   const queryClient = useQueryClient();
 
-  const canRegister = role === "ROUTE_MANAGER" || role === "ADMIN" || role === "SUPER_ADMIN";
+  const canRegister =
+    hasRole("ROUTE_MANAGER") || hasRole("ADMIN") || hasRole("SUPER_ADMIN");
+  const isClientView = hasRole("CLIENT") && !canRegister;
 
   const clientsQuery = useQuery({
     queryKey: ["clients-for-payments-dropdown"],
@@ -180,32 +207,60 @@ const PaymentsPage = (): JSX.Element => {
     return (scheduleQuery.data?.data ?? []).find((item) => item.installmentNumber === effectiveInstallmentNumber) ?? null;
   }, [effectiveInstallmentNumber, scheduleQuery.data]);
 
+  const [paymentsPage, setPaymentsPage] = useState(1);
+  const [paymentsLimit, setPaymentsLimit] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+  const [clientPayPage, setClientPayPage] = useState(1);
+  const [clientPayLimit, setClientPayLimit] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+
   const paymentsQuery = useQuery({
-    queryKey: ["payments-list", role],
+    queryKey: ["payments-list", rolesCacheKey, paymentsPage, paymentsLimit],
     queryFn: async (): Promise<PaymentListResponse> => {
-      const response = await api.get<PaymentListResponse>("/payments");
+      const response = await api.get<PaymentListResponse>("/payments", {
+        params: { page: paymentsPage, limit: paymentsLimit }
+      });
       return response.data;
     },
     enabled: canRegister
   });
 
   const clientPaymentsQuery = useQuery({
-    queryKey: ["payments-by-loan", effectiveLoanId],
+    queryKey: ["payments-by-loan", effectiveLoanId, clientPayPage, clientPayLimit],
     queryFn: async (): Promise<PaymentListResponse> => {
-      const response = await api.get<PaymentListResponse>(`/payments/loan/${effectiveLoanId}`);
+      const response = await api.get<PaymentListResponse>(`/payments/loan/${effectiveLoanId}`, {
+        params: { page: clientPayPage, limit: clientPayLimit }
+      });
       return response.data;
     },
-    enabled: role === "CLIENT" && Boolean(effectiveLoanId)
+    enabled: isClientView && Boolean(effectiveLoanId)
   });
+
+  useEffect(() => {
+    const d = paymentsQuery.data;
+    if (!d) return;
+    if (d.page !== paymentsPage) setPaymentsPage(d.page);
+  }, [paymentsQuery.data, paymentsPage]);
+
+  useEffect(() => {
+    const d = clientPaymentsQuery.data;
+    if (!d) return;
+    if (d.page !== clientPayPage) setClientPayPage(d.page);
+  }, [clientPaymentsQuery.data, clientPayPage]);
+
+  useEffect(() => {
+    setClientPayPage(1);
+  }, [effectiveLoanId]);
 
   const form = useForm<PaymentFormValues>({
     resolver: zodResolver(paymentFormSchema),
     defaultValues: {
       amount: 0,
+      method: "CASH",
       notes: ""
     },
     mode: "onChange"
   });
+
+  const paymentIdempotencyKeyRef = useRef<string | null>(null);
 
   const { mutateAsync, isPending } = useMutation({
     mutationFn: async (values: PaymentFormValues): Promise<void> => {
@@ -216,17 +271,29 @@ const PaymentsPage = (): JSX.Element => {
         throw new Error("Selecciona una cuota pendiente o parcial.");
       }
 
-      await api.post("/payments", {
-        loanId: effectiveLoanId,
-        scheduleId: scheduleForSelection.id,
-        amount: values.amount,
-        notes: values.notes ? values.notes : undefined
-      });
+      if (typeof crypto === "undefined" || !crypto.randomUUID) {
+        throw new Error("Tu navegador no admite operaciones seguras de pago. Actualiza el navegador.");
+      }
+      const idemKey = paymentIdempotencyKeyRef.current ?? crypto.randomUUID();
+      paymentIdempotencyKeyRef.current = idemKey;
+
+      await api.post(
+        "/payments",
+        {
+          loanId: effectiveLoanId,
+          scheduleId: scheduleForSelection.id,
+          amount: values.amount,
+          method: values.method,
+          notes: values.notes ? values.notes : undefined
+        },
+        { headers: { "X-Idempotency-Key": idemKey } }
+      );
     },
     onSuccess: async () => {
-      form.reset({ amount: 0, notes: "" });
+      paymentIdempotencyKeyRef.current = null;
+      form.reset({ amount: 0, method: "CASH", notes: "" });
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["payments-list", role] }),
+        queryClient.invalidateQueries({ queryKey: ["payments-list"] }),
         queryClient.invalidateQueries({ queryKey: ["payments-loans"] }),
         queryClient.invalidateQueries({ queryKey: ["payment-schedule", effectiveLoanId] }),
         queryClient.invalidateQueries({ queryKey: ["payments-by-loan", effectiveLoanId] }),
@@ -240,10 +307,38 @@ const PaymentsPage = (): JSX.Element => {
     await mutateAsync(values);
   };
 
+  const canReverse = hasRole("SUPER_ADMIN") || hasRole("ADMIN");
+
+  const paymentRowCanReverse = (p: PaymentItem): boolean => {
+    if (p.status === "REVERSED") {
+      return false;
+    }
+    if (!p.scheduleId) {
+      return false;
+    }
+    return true;
+  };
+
+  const reversePaymentMutation = useMutation({
+    mutationFn: async (paymentId: string): Promise<void> => {
+      await api.post(`/payments/${paymentId}/reverse`, {});
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["payments-list"] }),
+        queryClient.invalidateQueries({ queryKey: ["payments-by-loan", effectiveLoanId] }),
+        queryClient.invalidateQueries({ queryKey: ["payment-schedule", effectiveLoanId] }),
+        queryClient.invalidateQueries({ queryKey: ["payments-loans"] }),
+        queryClient.invalidateQueries({ queryKey: ["loans-list"] }),
+        queryClient.invalidateQueries({ queryKey: ["loan-detail", effectiveLoanId] })
+      ]);
+    }
+  });
+
   const showRegister = canRegister;
 
   return (
-    <section className="space-y-4">
+    <section className="min-w-0 space-y-4">
       <header className="rounded-xl border border-border bg-surface p-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -270,7 +365,7 @@ const PaymentsPage = (): JSX.Element => {
         </div>
       ) : null}
 
-      {role === "CLIENT" ? (
+      {isClientView ? (
         <div className="rounded-xl border border-border bg-surface p-6">
           <h2 className="text-lg font-semibold">Tus pagos</h2>
 
@@ -302,8 +397,9 @@ const PaymentsPage = (): JSX.Element => {
           ) : null}
 
           {clientPaymentsQuery.data ? (
-            <div className="mt-4 rutapay-table-wrap">
-              {clientPaymentsQuery.data.data.length === 0 ? (
+            <div className="mt-4">
+              <div className="rutapay-table-wrap">
+              {clientPaymentsQuery.data.total === 0 ? (
                 <p className="text-sm text-textSecondary">Aún no tienes pagos registrados.</p>
               ) : (
                 <table className="rutapay-table">
@@ -335,15 +431,27 @@ const PaymentsPage = (): JSX.Element => {
                   </tbody>
                 </table>
               )}
+              </div>
+              {clientPaymentsQuery.data.total > 0 ? (
+                <TablePagination
+                  page={clientPayPage}
+                  limit={clientPayLimit}
+                  total={clientPaymentsQuery.data.total}
+                  onPageChange={setClientPayPage}
+                  onLimitChange={(next) => {
+                    setClientPayLimit(next);
+                    setClientPayPage(1);
+                  }}
+                />
+              ) : null}
             </div>
           ) : null}
         </div>
       ) : null}
 
       {showRegister ? (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-          <div className="space-y-4 xl:col-span-1">
-            <div className="rounded-xl border border-border bg-surface p-6">
+        <div className="flex w-full min-w-0 flex-col gap-4">
+          <div className="w-full rounded-xl border border-border bg-surface p-6">
               <h2 className="text-lg font-semibold">Registrar pago</h2>
 
               <div className="mt-4 space-y-2">
@@ -416,6 +524,18 @@ const PaymentsPage = (): JSX.Element => {
                 </div>
 
                 <div>
+                  <label className="mb-1 block text-sm text-textSecondary">Método de pago</label>
+                  <select
+                    className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+                    {...form.register("method")}
+                  >
+                    <option value="CASH">Efectivo</option>
+                    <option value="TRANSFER">Transferencia</option>
+                  </select>
+                  <p className="mt-1 text-xs text-danger">{form.formState.errors.method?.message}</p>
+                </div>
+
+                <div>
                   <label className="mb-1 block text-sm text-textSecondary">Notas (opcional)</label>
                   <input
                     type="text"
@@ -438,13 +558,26 @@ const PaymentsPage = (): JSX.Element => {
                 >
                   {isPending ? "Registrando..." : "Registrar pago"}
                 </button>
+                {availableSchedules.length > 0 &&
+                effectiveLoanId &&
+                scheduleForSelection &&
+                !form.formState.isValid ? (
+                  <p className="text-xs text-textSecondary">
+                    Indica un monto recibido válido (entero mayor que 0) para activar esta acción.
+                  </p>
+                ) : null}
               </form>
-            </div>
           </div>
 
-          <div className="space-y-4 xl:col-span-2">
-            <div className="rounded-xl border border-border bg-surface p-6">
+          <div className="w-full min-w-0 rounded-xl border border-border bg-surface p-6">
               <h2 className="text-lg font-semibold">Historial de pagos</h2>
+              {canReverse ? (
+                <p className="mt-2 text-xs text-textSecondary">
+                  Los pagos en estado Activo muestran el botón{" "}
+                  <span className="font-medium text-textPrimary">Reversar</span> en la última columna.
+                  En pantallas estrechas, desplázate horizontalmente sobre la tabla para verla.
+                </p>
+              ) : null}
               {paymentsQuery.isLoading ? (
                 <p className="mt-4 text-sm text-textSecondary">Cargando pagos...</p>
               ) : null}
@@ -453,8 +586,9 @@ const PaymentsPage = (): JSX.Element => {
               ) : null}
 
               {paymentsQuery.data ? (
-                <div className="mt-4 rutapay-table-wrap">
-                  {paymentsQuery.data.data.length === 0 ? (
+                <div className="mt-4 w-full min-w-0">
+                  <div className="rutapay-table-wrap w-full min-w-0 max-w-full">
+                  {paymentsQuery.data.total === 0 ? (
                     <p className="text-sm text-textSecondary">Aún no hay pagos registrados.</p>
                   ) : (
                     <table className="rutapay-table">
@@ -464,13 +598,22 @@ const PaymentsPage = (): JSX.Element => {
                             Fecha
                           </th>
                           <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-textSecondary">
-                            Préstamo
+                            Cliente
                           </th>
                           <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-textSecondary">
                             Valor
                           </th>
                           <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-textSecondary">
+                            Método
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-textSecondary">
+                            Estado
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-textSecondary">
                             Nota
+                          </th>
+                          <th className="sticky right-0 z-[1] min-w-[7rem] border-l border-border bg-surface px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-textSecondary shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.45)]">
+                            Acciones
                           </th>
                         </tr>
                       </thead>
@@ -480,19 +623,54 @@ const PaymentsPage = (): JSX.Element => {
                             <td className="px-3 py-3 text-sm text-textSecondary">
                               {formatBogotaDateFromString(p.createdAt)}
                             </td>
-                            <td className="px-3 py-3 text-sm text-textSecondary">{p.loanId}</td>
+                            <td className="px-3 py-3 text-sm text-textSecondary">{p.clientName}</td>
                             <td className="px-3 py-3 text-sm text-textPrimary">
                               {formatCOP(p.amount)}
                             </td>
+                            <td className="px-3 py-3 text-sm text-textSecondary">
+                              {p.method === "CASH" ? "Efectivo" : "Transferencia"}
+                            </td>
+                            <td className="px-3 py-3 text-sm text-textSecondary">
+                              {p.status === "REVERSED" ? "Anulado" : "Activo"}
+                            </td>
                             <td className="px-3 py-3 text-sm text-textSecondary">{p.notes ?? "-"}</td>
+                            <td className="sticky right-0 z-[1] min-w-[7rem] border-l border-border bg-surface px-3 py-3 text-right shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.45)]">
+                              {canReverse && paymentRowCanReverse(p) ? (
+                                <button
+                                  type="button"
+                                  className="rounded-md border border-danger px-3 py-1 text-sm text-danger hover:bg-danger/10"
+                                  onClick={async () => {
+                                    const confirmed = window.confirm("¿Deseas anular/reversar este pago?");
+                                    if (!confirmed) return;
+                                    await reversePaymentMutation.mutateAsync(p.id);
+                                  }}
+                                >
+                                  Reversar
+                                </button>
+                              ) : (
+                                <span className="text-xs text-textSecondary">-</span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   )}
+                  </div>
+                  {paymentsQuery.data.total > 0 ? (
+                    <TablePagination
+                      page={paymentsPage}
+                      limit={paymentsLimit}
+                      total={paymentsQuery.data.total}
+                      onPageChange={setPaymentsPage}
+                      onLimitChange={(next) => {
+                        setPaymentsLimit(next);
+                        setPaymentsPage(1);
+                      }}
+                    />
+                  ) : null}
                 </div>
               ) : null}
-            </div>
           </div>
         </div>
       ) : null}

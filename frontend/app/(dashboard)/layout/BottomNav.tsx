@@ -5,69 +5,45 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
-
-type BottomNavItem = {
-  label: string;
-  href: string;
-};
-
-const bottomItemsByRole: Record<UserRole, BottomNavItem[]> = {
-  SUPER_ADMIN: [
-    { label: "Inicio", href: "/overview" },
-    { label: "Clientes", href: "/clients" },
-    { label: "Préstamos", href: "/loans" },
-    { label: "Alertas", href: "/notifications" }
-  ],
-  ADMIN: [
-    { label: "Inicio", href: "/overview" },
-    { label: "Clientes", href: "/clients" },
-    { label: "Préstamos", href: "/loans" },
-    { label: "Alertas", href: "/notifications" }
-  ],
-  ROUTE_MANAGER: [
-    { label: "Inicio", href: "/overview" },
-    { label: "Clientes", href: "/clients" },
-    { label: "Préstamos", href: "/loans" },
-    { label: "Alertas", href: "/notifications" }
-  ],
-  CLIENT: [
-    { label: "Inicio", href: "/overview" },
-    { label: "Mis préstamos", href: "/loans" },
-    { label: "Mis pagos", href: "/payments" },
-    { label: "Alertas", href: "/notifications" }
-  ]
-};
+import { NavIcon } from "./nav-icons";
+import { isNavItemActive, navItemsByRole, type NavItem } from "./nav-items";
 
 const BottomNav = (): JSX.Element => {
   const pathname = usePathname();
   const user = useAuthStore((state) => state.user);
   const role: UserRole = user?.roles[0] ?? "CLIENT";
 
-  const items = useMemo<BottomNavItem[]>(() => bottomItemsByRole[role] ?? [], [role]);
+  const items = useMemo<NavItem[]>(() => {
+    const list = navItemsByRole[role] ?? [];
+    return list.filter((item) => item.href !== "/notifications");
+  }, [role]);
 
   return (
     <nav
       className={[
-        "fixed inset-x-0 bottom-0 z-40 bg-surface md:hidden",
+        "fixed inset-x-0 bottom-0 z-40 border-t border-white/5 bg-surface md:hidden",
         "pb-[env(safe-area-inset-bottom)]"
       ].join(" ")}
     >
-      <ul className="grid grid-cols-4">
+      <ul className="flex w-full items-stretch justify-between gap-0 px-0.5">
         {items.map((item) => {
-          const active = pathname === item.href;
+          const active = isNavItemActive(pathname, item.href);
           return (
-            <li key={item.href}>
+            <li key={item.href} className="min-w-0 flex-1">
               <Link
                 href={item.href}
                 className={[
-                  "flex min-h-16 flex-col items-center justify-center",
-                  "gap-1 px-2 text-center text-[11px] font-semibold",
+                  "flex min-h-[2.875rem] flex-col items-center justify-center gap-0.5 px-0.5 py-1 text-center",
+                  "text-[9px] font-semibold leading-[1.1]",
                   active ? "text-primary" : "text-textSecondary",
-                    "select-none"
+                  "select-none"
                 ].join(" ")}
                 aria-current={active ? "page" : undefined}
               >
-                {item.label}
+                <span className={active ? "text-primary" : "text-slate-400"}>
+                  <NavIcon icon={item.icon} className="h-[18px] w-[18px]" />
+                </span>
+                <span className="line-clamp-2 w-full px-0.5">{item.label}</span>
               </Link>
             </li>
           );
@@ -78,4 +54,3 @@ const BottomNav = (): JSX.Element => {
 };
 
 export default BottomNav;
-

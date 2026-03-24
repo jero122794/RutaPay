@@ -1,5 +1,7 @@
 // backend/src/modules/clients/service.ts
 import bcrypt from "bcryptjs";
+import type { PaginationQuery } from "../../shared/pagination.schema.js";
+import { slicePage } from "../../shared/pagination.schema.js";
 import { prisma } from "../../shared/prisma.js";
 import type { CreateClientInput, UpdateClientInput } from "./schema.js";
 
@@ -8,6 +10,9 @@ interface ClientView {
   name: string;
   email: string;
   phone: string | null;
+  address: string | null;
+  description: string | null;
+  documentId: string | null;
   isActive: boolean;
   routeId: string;
   routeName: string;
@@ -47,6 +52,9 @@ const toClientViewById = async (clientId: string): Promise<ClientView> => {
     name: client.name,
     email: client.email,
     phone: client.phone,
+    address: client.address,
+    description: client.description,
+    documentId: client.documentId,
     isActive: client.isActive,
     routeId: routeClient.routeId,
     routeName: routeClient.route.name,
@@ -81,7 +89,11 @@ const ensureRouteManagerAccess = async (
   }
 };
 
-export const listClients = async (actorId: string, actorRoles: string[]): Promise<ClientView[]> => {
+export const listClients = async (
+  actorId: string,
+  actorRoles: string[],
+  pagination: PaginationQuery | null
+): Promise<{ data: ClientView[]; total: number; page: number; limit: number }> => {
   const isPrivileged = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
 
   const routeFilter = isPrivileged
@@ -117,7 +129,7 @@ export const listClients = async (actorId: string, actorRoles: string[]): Promis
 
   const clientRole = await prisma.role.findUnique({ where: { name: "CLIENT" } });
   if (!clientRole) {
-    return [];
+    return { data: [], total: 0, page: 1, limit: 0 };
   }
 
   const clientRoleRows = await prisma.userRole.findMany({
@@ -141,6 +153,9 @@ export const listClients = async (actorId: string, actorRoles: string[]): Promis
       name: client.name,
       email: client.email,
       phone: client.phone,
+      address: client.address,
+      description: client.description,
+      documentId: client.documentId,
       isActive: client.isActive,
       routeId: item.routeId,
       routeName: item.route.name,
@@ -151,7 +166,12 @@ export const listClients = async (actorId: string, actorRoles: string[]): Promis
     });
   }
 
-  return result;
+  const total = result.length;
+  if (!pagination) {
+    return { data: result, total, page: 1, limit: total };
+  }
+  const { data, page } = slicePage(result, pagination.page, pagination.limit);
+  return { data, total, page, limit: pagination.limit };
 };
 
 export const createClient = async (
@@ -167,6 +187,12 @@ export const createClient = async (
 
   if (existing) {
     throw new Error("Email already exists.");
+  }
+  const existingDocument = await prisma.user.findFirst({
+    where: { documentId: input.documentId }
+  });
+  if (existingDocument) {
+    throw new Error("Document already exists.");
   }
 
   const clientRole = await prisma.role.findUnique({
@@ -184,6 +210,9 @@ export const createClient = async (
         name: input.name,
         email: input.email,
         phone: input.phone,
+        address: input.address,
+        description: input.description,
+        documentId: input.documentId,
         passwordHash
       }
     });
@@ -232,11 +261,41 @@ export const updateClient = async (
 ): Promise<ClientView> => {
   const current = await getClientById(id, actorId, actorRoles);
 
+  if (input.email) {
+    const existingEmailOwner = await prisma.user.findFirst({
+      where: {
+        email: input.email,
+        id: { not: current.id }
+      },
+      select: { id: true }
+    });
+    if (existingEmailOwner) {
+      throw new Error("Email already exists.");
+    }
+  }
+
+  if (input.documentId) {
+    const existingDocumentOwner = await prisma.user.findFirst({
+      where: {
+        documentId: input.documentId,
+        id: { not: current.id }
+      },
+      select: { id: true }
+    });
+    if (existingDocumentOwner) {
+      throw new Error("Document already exists.");
+    }
+  }
+
   await prisma.user.update({
     where: { id: current.id },
     data: {
       name: input.name,
+      email: input.email,
       phone: input.phone,
+      address: input.address,
+      description: input.description,
+      documentId: input.documentId,
       isActive: input.isActive
     }
   });

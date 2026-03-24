@@ -8,8 +8,10 @@ import { useParams } from "next/navigation";
 import api from "../../../../lib/api";
 import { formatCOP } from "../../../../lib/formatters";
 import { formatBogotaDateFromString } from "../../../../lib/bogota";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuthStore, type UserRole } from "../../../../store/authStore";
+import TablePagination from "../../../../components/ui/TablePagination";
+import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../../lib/page-size";
 
 interface LoanDetail {
   id: string;
@@ -114,8 +116,24 @@ const LoanDetailPage = (): JSX.Element => {
     const items = scheduleQuery.data?.data ?? [];
     const paidTotal = items.reduce((acc, item) => acc + item.paidAmount, 0);
     const total = items.reduce((acc, item) => acc + item.amount, 0);
-    return { paidTotal, total };
+    const pendingTotal = Math.max(total - paidTotal, 0);
+    return { paidTotal, total, pendingTotal };
   }, [scheduleQuery.data]);
+
+  const [schedulePage, setSchedulePage] = useState(1);
+  const [scheduleLimit, setScheduleLimit] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+  const scheduleItems = scheduleQuery.data?.data ?? [];
+  const pagedScheduleItems = useMemo(() => {
+    const start = (schedulePage - 1) * scheduleLimit;
+    return scheduleItems.slice(start, start + scheduleLimit);
+  }, [scheduleItems, schedulePage, scheduleLimit]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(scheduleItems.length / scheduleLimit));
+    if (schedulePage > totalPages) {
+      setSchedulePage(totalPages);
+    }
+  }, [scheduleItems.length, scheduleLimit, schedulePage]);
 
   return (
     <section className="space-y-4">
@@ -154,7 +172,7 @@ const LoanDetailPage = (): JSX.Element => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 rounded-xl border border-border bg-surface p-6 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 rounded-xl border border-border bg-surface p-6 md:grid-cols-4">
             <div className="space-y-2">
               <p className="text-xs uppercase tracking-wider text-textSecondary">Estado</p>
               <p className="text-sm text-textPrimary">{loanQuery.data.data.status}</p>
@@ -166,6 +184,10 @@ const LoanDetailPage = (): JSX.Element => {
             <div className="space-y-2">
               <p className="text-xs uppercase tracking-wider text-textSecondary">Total</p>
               <p className="text-sm font-semibold">{formatCOP(totals.total)}</p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-wider text-textSecondary">Saldo pendiente</p>
+              <p className="text-sm font-semibold text-warning">{formatCOP(totals.pendingTotal)}</p>
             </div>
           </div>
 
@@ -192,7 +214,7 @@ const LoanDetailPage = (): JSX.Element => {
                   </tr>
                 </thead>
                 <tbody>
-                  {scheduleQuery.data.data.map((item) => (
+                  {pagedScheduleItems.map((item) => (
                     <tr key={item.installmentNumber} className="border-t border-border">
                       <td className="px-3 py-3 text-sm text-textSecondary">{item.installmentNumber}</td>
                       <td className="px-3 py-3 text-sm text-textSecondary">
@@ -206,6 +228,18 @@ const LoanDetailPage = (): JSX.Element => {
                 </tbody>
               </table>
             </div>
+            {scheduleItems.length > 0 ? (
+              <TablePagination
+                page={schedulePage}
+                limit={scheduleLimit}
+                total={scheduleItems.length}
+                onPageChange={setSchedulePage}
+                onLimitChange={(next) => {
+                  setScheduleLimit(next);
+                  setSchedulePage(1);
+                }}
+              />
+            ) : null}
           </div>
 
           <div className="rounded-xl border border-border bg-bg p-6">

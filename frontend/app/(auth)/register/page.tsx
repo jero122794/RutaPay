@@ -14,9 +14,15 @@ import { useQuery } from "@tanstack/react-query";
 
 const registerSchema = z.object({
   name: z.string().min(2, "Nombre requerido"),
-  email: z.string().email("Correo inválido"),
+  email: z.union([z.string().email("Correo inválido"), z.literal("")]).optional(),
   phone: z.string().min(7, "Teléfono inválido"),
-  routeId: z.string().cuid().optional(),
+  address: z.string().min(5, "Dirección requerida"),
+  description: z.string().min(3, "Descripción requerida"),
+  documentId: z.string().min(5, "Documento requerido"),
+  routeId: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.string().cuid().optional()
+  ),
   password: z
     .string()
     .min(8, "Mínimo 8 caracteres")
@@ -52,6 +58,10 @@ interface ListResponse<T> {
   limit: number;
 }
 
+interface RegisterRoutesResponse {
+  data: RouteItem[];
+}
+
 const RegisterContent = (): JSX.Element => {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -70,7 +80,10 @@ const RegisterContent = (): JSX.Element => {
       name: "",
       email: "",
       phone: "",
-      routeId: routeIdFromQuery || undefined,
+      address: "",
+      description: "",
+      documentId: "",
+      routeId: routeIdFromQuery || "",
       password: ""
     },
     mode: "onChange"
@@ -85,33 +98,56 @@ const RegisterContent = (): JSX.Element => {
     enabled: isRouteManager
   });
 
+  const routesPublicQuery = useQuery({
+    queryKey: ["auth-register-routes"],
+    queryFn: async (): Promise<RegisterRoutesResponse> => {
+      const response = await api.get<RegisterRoutesResponse>("/auth/register/routes");
+      return response.data;
+    },
+    enabled: !isRouteManager
+  });
+
   useEffect(() => {
-    if (!isRouteManager) return;
-    const routes = routesMeQuery.data?.data ?? [];
+    if (isRouteManager) {
+      const routes = routesMeQuery.data?.data ?? [];
+      const selectedRouteId = form.getValues("routeId");
+      const hasSelectedRoute = selectedRouteId ? routes.some((route) => route.id === selectedRouteId) : false;
+      const queryRouteExists = routeIdFromQuery
+        ? routes.some((route) => route.id === routeIdFromQuery)
+        : false;
+
+      if (routeIdFromQuery && queryRouteExists && selectedRouteId !== routeIdFromQuery) {
+        form.setValue("routeId", routeIdFromQuery, { shouldValidate: true, shouldDirty: true });
+        return;
+      }
+
+      if (hasSelectedRoute) {
+        return;
+      }
+
+      if (routes.length === 1) {
+        form.setValue("routeId", routes[0].id, { shouldValidate: true, shouldDirty: true });
+        return;
+      }
+
+      if (routes.length > 1) {
+        form.setValue("routeId", routes[0].id, { shouldValidate: true, shouldDirty: true });
+      }
+      return;
+    }
+
+    const routes = routesPublicQuery.data?.data ?? [];
     const selectedRouteId = form.getValues("routeId");
-    const hasSelectedRoute = selectedRouteId ? routes.some((route) => route.id === selectedRouteId) : false;
-    const queryRouteExists = routeIdFromQuery
-      ? routes.some((route) => route.id === routeIdFromQuery)
-      : false;
-
-    if (routeIdFromQuery && queryRouteExists && selectedRouteId !== routeIdFromQuery) {
-      form.setValue("routeId", routeIdFromQuery, { shouldValidate: true, shouldDirty: true });
+    if (routeIdFromQuery && routes.some((r) => r.id === routeIdFromQuery)) {
+      if (selectedRouteId !== routeIdFromQuery) {
+        form.setValue("routeId", routeIdFromQuery, { shouldValidate: true, shouldDirty: true });
+      }
       return;
     }
-
-    if (hasSelectedRoute) {
-      return;
+    if (selectedRouteId && routes.length > 0 && !routes.some((r) => r.id === selectedRouteId)) {
+      form.setValue("routeId", "", { shouldValidate: true });
     }
-
-    if (routes.length === 1) {
-      form.setValue("routeId", routes[0].id, { shouldValidate: true, shouldDirty: true });
-      return;
-    }
-
-    if (routes.length > 1) {
-      form.setValue("routeId", routes[0].id, { shouldValidate: true, shouldDirty: true });
-    }
-  }, [form, isRouteManager, routesMeQuery.data, routeIdFromQuery]);
+  }, [form, isRouteManager, routesMeQuery.data, routesPublicQuery.data, routeIdFromQuery]);
 
   const onSubmit = async (values: RegisterFormData): Promise<void> => {
     setError("");
@@ -171,7 +207,7 @@ const RegisterContent = (): JSX.Element => {
 
           <div>
             <label htmlFor="email" className="mb-1 block text-sm text-textSecondary">
-              Correo
+              Correo (opcional)
             </label>
             <input
               id="email"
@@ -196,17 +232,58 @@ const RegisterContent = (): JSX.Element => {
           </div>
 
           <div>
+            <label htmlFor="documentId" className="mb-1 block text-sm text-textSecondary">
+              Documento de identidad
+            </label>
+            <input
+              id="documentId"
+              type="text"
+              className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+              {...form.register("documentId")}
+            />
+            <p className="mt-1 text-xs text-danger">{form.formState.errors.documentId?.message}</p>
+          </div>
+
+          <div>
+            <label htmlFor="address" className="mb-1 block text-sm text-textSecondary">
+              Dirección
+            </label>
+            <input
+              id="address"
+              type="text"
+              className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+              {...form.register("address")}
+            />
+            <p className="mt-1 text-xs text-danger">{form.formState.errors.address?.message}</p>
+          </div>
+
+          <div>
+            <label htmlFor="description" className="mb-1 block text-sm text-textSecondary">
+              Descripción
+            </label>
+            <textarea
+              id="description"
+              rows={3}
+              className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+              {...form.register("description")}
+            />
+            <p className="mt-1 text-xs text-danger">{form.formState.errors.description?.message}</p>
+          </div>
+
+          <div>
             <label htmlFor="routeId" className="mb-1 block text-sm text-textSecondary">
-              Ruta {isRouteManager ? "(automática por tu rol)" : "(opcional)"}
+              Ruta
             </label>
             {isRouteManager ? (
               routesMeQuery.isLoading ? (
-                <input
+                <select
                   id="routeId"
-                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+                  disabled
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary opacity-60"
                   value=""
-                  readOnly
-                />
+                >
+                  <option value="">Cargando rutas...</option>
+                </select>
               ) : routesMeQuery.data && routesMeQuery.data.data.length > 0 ? (
                 <select
                   id="routeId"
@@ -220,28 +297,45 @@ const RegisterContent = (): JSX.Element => {
                   ))}
                 </select>
               ) : (
-                <input
-                  id="routeId"
-                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-                  value="No tienes rutas asignadas"
-                  readOnly
-                />
+                <p className="rounded-md border border-border bg-bg px-3 py-2 text-sm text-textSecondary">
+                  No tienes rutas asignadas. Solicita una ruta a administración.
+                </p>
               )
-            ) : (
-              <input
+            ) : routesPublicQuery.isLoading ? (
+              <select
                 id="routeId"
-                type="text"
-                placeholder="Pega el routeId o usa el link con ?routeId="
+                disabled
+                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary opacity-60"
+                value=""
+              >
+                <option value="">Cargando rutas...</option>
+              </select>
+            ) : routesPublicQuery.isError ? (
+              <p className="text-sm text-danger">No se pudieron cargar las rutas. Intenta de nuevo más tarde.</p>
+            ) : routesPublicQuery.data && routesPublicQuery.data.data.length > 0 ? (
+              <select
+                id="routeId"
                 className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
                 {...form.register("routeId")}
-              />
+              >
+                <option value="">Selecciona una ruta (opcional)</option>
+                {routesPublicQuery.data.data.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="rounded-md border border-border bg-bg px-3 py-2 text-sm text-textSecondary">
+                No hay rutas registradas aún. Contacta a administración.
+              </p>
             )}
             <p className="mt-1 text-xs text-danger">{form.formState.errors.routeId?.message}</p>
-            {isRouteManager ? (
-              <p className="mt-1 text-xs text-textSecondary">
-                Si registras sin ruta, el cliente no aparecerá en el módulo de Clientes.
-              </p>
-            ) : null}
+            <p className="mt-1 text-xs text-textSecondary">
+              {isRouteManager
+                ? "El cliente quedará asociado a la ruta elegida. Sin ruta no aparecerá en tu módulo de clientes."
+                : "Opcional: vincula tu cuenta a la ruta de tu microcrédito. También puedes usar un enlace con ?routeId=…"}
+            </p>
           </div>
 
           <div>

@@ -7,6 +7,8 @@ import { useEffect, useState } from "react";
 import api from "../../../lib/api";
 import { formatCOP } from "../../../lib/formatters";
 import { useAuthStore } from "../../../store/authStore";
+import TablePagination from "../../../components/ui/TablePagination";
+import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../lib/page-size";
 import {
   getBogotaTodayKey,
   toBogotaDayKey,
@@ -64,6 +66,8 @@ const StatCard = ({ title, value, hint, tone = "default" }: StatCardProps): JSX.
 
 const OverviewPage = (): JSX.Element => {
   const [isHydrated, setIsHydrated] = useState(false);
+  const [managerMetricsPage, setManagerMetricsPage] = useState(1);
+  const [managerMetricsLimit, setManagerMetricsLimit] = useState<PageSize>(DEFAULT_PAGE_SIZE);
 
   useEffect(() => {
     setIsHydrated(true);
@@ -219,6 +223,15 @@ const OverviewPage = (): JSX.Element => {
     const key = typeof loan.startDate === "string" ? toBogotaDayKey(loan.startDate) : toBogotaDayKeyFromDate(loan.startDate);
     return key === todayKey;
   }).length;
+  const managerMetricsRows = [
+    { id: "clients", label: "Mis clientes", value: String(routeManagerClientsQuery.data?.data.length ?? 0) },
+    { id: "active-loans", label: "Préstamos activos", value: String(activeLoansForManager.length) },
+    { id: "active-loans-today", label: "Préstamos activos hoy", value: String(prestamosActivosHoyCount) }
+  ];
+  const pagedManagerMetricsRows = managerMetricsRows.slice(
+    (managerMetricsPage - 1) * managerMetricsLimit,
+    (managerMetricsPage - 1) * managerMetricsLimit + managerMetricsLimit
+  );
 
   if (!isAdminView && !isRouteManagerView) {
     return (
@@ -285,21 +298,25 @@ const OverviewPage = (): JSX.Element => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                <tr className="hover:bg-white/[0.02]">
-                  <td className="px-6 py-4 text-sm text-on-surface">Mis clientes</td>
-                  <td className="px-6 py-4 font-mono text-sm font-bold text-on-surface">{String(routeManagerClientsQuery.data?.data.length ?? 0)}</td>
-                </tr>
-                <tr className="hover:bg-white/[0.02]">
-                  <td className="px-6 py-4 text-sm text-on-surface">Préstamos activos</td>
-                  <td className="px-6 py-4 font-mono text-sm font-bold text-on-surface">{String(activeLoansForManager.length)}</td>
-                </tr>
-                <tr className="hover:bg-white/[0.02]">
-                  <td className="px-6 py-4 text-sm text-on-surface">Préstamos activos hoy</td>
-                  <td className="px-6 py-4 font-mono text-sm font-bold text-on-surface">{String(prestamosActivosHoyCount)}</td>
-                </tr>
+                {pagedManagerMetricsRows.map((row) => (
+                  <tr key={row.id} className="hover:bg-white/[0.02]">
+                    <td className="px-6 py-4 text-sm text-on-surface">{row.label}</td>
+                    <td className="px-6 py-4 font-mono text-sm font-bold text-on-surface">{row.value}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
+          <TablePagination
+            page={managerMetricsPage}
+            limit={managerMetricsLimit}
+            total={managerMetricsRows.length}
+            onPageChange={setManagerMetricsPage}
+            onLimitChange={(next) => {
+              setManagerMetricsLimit(next);
+              setManagerMetricsPage(1);
+            }}
+          />
         </section>
       </div>
     );

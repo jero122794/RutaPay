@@ -2,7 +2,10 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import TablePagination from "../../../components/ui/TablePagination";
+import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../lib/page-size";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import api from "../../../lib/api";
 import axios from "axios";
@@ -38,14 +41,25 @@ const ClientsPage = (): JSX.Element => {
   const role: UserRole = user?.roles[0] ?? "CLIENT";
   const canCreate = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
 
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+
   const clientsQuery = useQuery({
-    queryKey: ["clients-list"],
+    queryKey: ["clients-list", page, limit],
     queryFn: async (): Promise<ListResponse<ClientItem>> => {
-      const response = await api.get<ListResponse<ClientItem>>("/clients");
+      const response = await api.get<ListResponse<ClientItem>>("/clients", {
+        params: { page, limit }
+      });
       return response.data;
     },
     enabled: role !== "CLIENT"
   });
+
+  useEffect(() => {
+    const d = clientsQuery.data;
+    if (!d) return;
+    if (d.page !== page) setPage(d.page);
+  }, [clientsQuery.data, page]);
 
   return (
     <section className="space-y-4">
@@ -86,11 +100,12 @@ const ClientsPage = (): JSX.Element => {
 
       {!clientsQuery.isLoading && !clientsQuery.isError && clientsQuery.data ? (
         <div className="rounded-xl border border-border bg-surface p-4">
-          {clientsQuery.data.data.length === 0 ? (
+          {clientsQuery.data.total === 0 ? (
             <div className="rounded-lg border border-border bg-bg p-6">
               <p className="text-sm text-textSecondary">No hay clientes registrados.</p>
             </div>
           ) : (
+            <>
             <div className="rutapay-table-wrap">
               <table className="rutapay-table">
                 <thead>
@@ -142,6 +157,17 @@ const ClientsPage = (): JSX.Element => {
                 </tbody>
               </table>
             </div>
+            <TablePagination
+              page={page}
+              limit={limit}
+              total={clientsQuery.data.total}
+              onPageChange={setPage}
+              onLimitChange={(next) => {
+                setLimit(next);
+                setPage(1);
+              }}
+            />
+            </>
           )}
         </div>
       ) : null}

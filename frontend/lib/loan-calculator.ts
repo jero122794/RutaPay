@@ -7,6 +7,7 @@ export interface LoanInput {
   installmentCount: number;
   frequency: LoanFrequency;
   startDate: Date;
+  excludeWeekends?: boolean;
 }
 
 export interface ScheduleItem {
@@ -25,7 +26,7 @@ export interface LoanResult {
 }
 
 export const calculateLoan = (input: LoanInput): LoanResult => {
-  const { principal, interestRate, installmentCount, frequency, startDate } = input;
+  const { principal, interestRate, installmentCount, frequency, startDate, excludeWeekends = false } = input;
   const totalInterest = Math.round(principal * interestRate);
   const totalAmount = principal + totalInterest;
   const installmentAmount = Math.round(totalAmount / installmentCount);
@@ -40,15 +41,32 @@ export const calculateLoan = (input: LoanInput): LoanResult => {
   };
 
   const daysBetween = frequencyDays[frequency];
-  for (let i = 1; i <= installmentCount; i += 1) {
-    const dueDate = new Date(startDate);
-    dueDate.setDate(dueDate.getDate() + daysBetween * i);
-    schedule.push({
-      installmentNumber: i,
-      dueDate,
-      amount: i === installmentCount ? lastInstallment : installmentAmount,
-      status: "PENDING"
-    });
+  if (frequency === "DAILY" && excludeWeekends) {
+    const cursorDate = new Date(startDate);
+    for (let i = 1; i <= installmentCount; i += 1) {
+      cursorDate.setDate(cursorDate.getDate() + 1);
+      while (cursorDate.getDay() === 0 || cursorDate.getDay() === 6) {
+        cursorDate.setDate(cursorDate.getDate() + 1);
+      }
+
+      schedule.push({
+        installmentNumber: i,
+        dueDate: new Date(cursorDate),
+        amount: i === installmentCount ? lastInstallment : installmentAmount,
+        status: "PENDING"
+      });
+    }
+  } else {
+    for (let i = 1; i <= installmentCount; i += 1) {
+      const dueDate = new Date(startDate);
+      dueDate.setDate(dueDate.getDate() + daysBetween * i);
+      schedule.push({
+        installmentNumber: i,
+        dueDate,
+        amount: i === installmentCount ? lastInstallment : installmentAmount,
+        status: "PENDING"
+      });
+    }
   }
 
   const lastScheduleItem = schedule.at(-1);

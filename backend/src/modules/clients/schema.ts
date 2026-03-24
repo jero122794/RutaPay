@@ -9,6 +9,9 @@ export const createClientSchema = z.object({
   name: z.string().min(2).max(100),
   email: z.string().email(),
   phone: z.string().min(7).max(20).optional(),
+  address: z.string().min(5).max(160),
+  description: z.string().min(3).max(300),
+  documentId: z.string().min(5).max(30),
   password: z
     .string()
     .min(8)
@@ -22,7 +25,14 @@ export const createClientSchema = z.object({
 
 export const updateClientSchema = z.object({
   name: z.string().min(2).max(100).optional(),
+  email: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.string().email().optional()
+  ),
   phone: z.string().min(7).max(20).optional(),
+  address: z.string().min(5).max(160).optional(),
+  description: z.string().min(3).max(300).optional(),
+  documentId: z.string().min(5).max(30).optional(),
   isActive: z.boolean().optional()
 });
 

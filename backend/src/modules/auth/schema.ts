@@ -3,8 +3,14 @@ import { z } from "zod";
 
 export const registerSchema = z.object({
   name: z.string().min(2).max(100),
-  email: z.string().email(),
+  email: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.string().email().optional()
+  ),
   phone: z.string().min(7).max(20).optional(),
+  address: z.string().min(5).max(160),
+  description: z.string().min(3).max(300),
+  documentId: z.string().min(5).max(30),
   routeId: z.preprocess(
     (value) => (value === "" || value === null || value === undefined ? undefined : value),
     z.string().cuid().optional()
@@ -20,7 +26,7 @@ export const registerSchema = z.object({
 });
 
 export const loginSchema = z.object({
-  email: z.string().email(),
+  identifier: z.string().min(3).max(120),
   password: z.string().min(8).max(64)
 });
 

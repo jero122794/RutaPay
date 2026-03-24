@@ -1,19 +1,25 @@
 // frontend/app/(dashboard)/clients/[id]/page.tsx
 "use client";
 
+import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import api from "../../../../lib/api";
 import { useAuthStore, type UserRole } from "../../../../store/authStore";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 
 interface ClientDetail {
   id: string;
   name: string;
   email: string;
   phone: string | null;
+  address: string | null;
+  description: string | null;
+  documentId: string | null;
   isActive: boolean;
   routeId: string;
   routeName: string;
@@ -24,6 +30,18 @@ interface ClientDetail {
 interface ClientResponse {
   data: ClientDetail;
 }
+
+const editClientSchema = z.object({
+  name: z.string().min(2, "Nombre requerido"),
+  email: z.union([z.string().email("Correo inválido"), z.literal("")]).optional(),
+  phone: z.union([z.string().min(7, "Teléfono inválido"), z.literal("")]).optional(),
+  documentId: z.string().min(5, "Documento requerido"),
+  address: z.string().min(5, "Dirección requerida"),
+  description: z.string().min(3, "Descripción requerida"),
+  isActive: z.boolean()
+});
+
+type EditClientFormValues = z.infer<typeof editClientSchema>;
 
 const getErrorMessage = (error: unknown): string => {
   if (axios.isAxiosError(error)) {
@@ -37,6 +55,8 @@ const ClientProfilePage = (): JSX.Element => {
   const params = useParams<{ id: string }>();
   const user = useAuthStore((state) => state.user);
   const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const queryClient = useQueryClient();
+  const canEditClient = role === "SUPER_ADMIN" || role === "ADMIN";
 
   const clientId = params.id;
 
@@ -57,6 +77,51 @@ const ClientProfilePage = (): JSX.Element => {
       <span className="rounded-full bg-danger/10 px-2 py-1 text-xs text-danger">Inactivo</span>
     );
   }, [query.data]);
+
+  const form = useForm<EditClientFormValues>({
+    resolver: zodResolver(editClientSchema),
+    defaultValues: {
+      name: "",
+      email: "",
+      phone: "",
+      documentId: "",
+      address: "",
+      description: "",
+      isActive: true
+    },
+    mode: "onChange"
+  });
+
+  useEffect(() => {
+    if (!query.data?.data) return;
+    form.reset({
+      name: query.data.data.name,
+      email: query.data.data.email ?? "",
+      phone: query.data.data.phone ?? "",
+      documentId: query.data.data.documentId ?? "",
+      address: query.data.data.address ?? "",
+      description: query.data.data.description ?? "",
+      isActive: query.data.data.isActive
+    });
+  }, [form, query.data]);
+
+  const updateMutation = useMutation({
+    mutationFn: async (values: EditClientFormValues): Promise<void> => {
+      await api.patch(`/clients/${clientId}`, {
+        name: values.name,
+        email: values.email || undefined,
+        phone: values.phone || undefined,
+        documentId: values.documentId,
+        address: values.address,
+        description: values.description,
+        isActive: values.isActive
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["client-detail", clientId] });
+      await queryClient.invalidateQueries({ queryKey: ["clients-list"] });
+    }
+  });
 
   return (
     <section className="space-y-4">
@@ -87,35 +152,141 @@ const ClientProfilePage = (): JSX.Element => {
       ) : null}
 
       {query.data?.data ? (
-        <div className="grid grid-cols-1 gap-4 rounded-xl border border-border bg-surface p-6 md:grid-cols-2">
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-wider text-textSecondary">Nombre</p>
-            <p className="text-base font-medium text-textPrimary">{query.data.data.name}</p>
-          </div>
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-wider text-textSecondary">Estado</p>
-            <div className="flex items-center gap-2">{badge}</div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 rounded-xl border border-border bg-surface p-6 md:grid-cols-2">
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-wider text-textSecondary">Nombre</p>
+              <p className="text-base font-medium text-textPrimary">{query.data.data.name}</p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-wider text-textSecondary">Estado</p>
+              <div className="flex items-center gap-2">{badge}</div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-wider text-textSecondary">Email</p>
+              <p className="text-base font-medium text-textPrimary">{query.data.data.email ?? "-"}</p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-wider text-textSecondary">Teléfono</p>
+              <p className="text-base font-medium text-textPrimary">
+                {query.data.data.phone ?? "-"}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-wider text-textSecondary">Documento</p>
+              <p className="text-base font-medium text-textPrimary">{query.data.data.documentId ?? "-"}</p>
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <p className="text-xs uppercase tracking-wider text-textSecondary">Dirección</p>
+              <p className="text-base font-medium text-textPrimary">{query.data.data.address ?? "-"}</p>
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <p className="text-xs uppercase tracking-wider text-textSecondary">Descripción</p>
+              <p className="text-base font-medium text-textPrimary">{query.data.data.description ?? "-"}</p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-wider text-textSecondary">Ruta</p>
+              <p className="text-base font-medium text-textPrimary">{query.data.data.routeName}</p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-wider text-textSecondary">Manager</p>
+              <p className="text-base font-medium text-textPrimary">{query.data.data.managerName}</p>
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-wider text-textSecondary">Email</p>
-            <p className="text-base font-medium text-textPrimary">{query.data.data.email}</p>
-          </div>
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-wider text-textSecondary">Teléfono</p>
-            <p className="text-base font-medium text-textPrimary">
-              {query.data.data.phone ?? "-"}
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-wider text-textSecondary">Ruta</p>
-            <p className="text-base font-medium text-textPrimary">{query.data.data.routeName}</p>
-          </div>
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-wider text-textSecondary">Manager</p>
-            <p className="text-base font-medium text-textPrimary">{query.data.data.managerName}</p>
-          </div>
+          {canEditClient ? (
+            <form
+              className="space-y-3 rounded-xl border border-border bg-surface p-6"
+              onSubmit={form.handleSubmit(async (values) => {
+                await updateMutation.mutateAsync(values);
+              })}
+            >
+              <h2 className="text-lg font-semibold">Editar cliente</h2>
+              <div>
+                <label htmlFor="name" className="mb-1 block text-sm text-textSecondary">
+                  Nombre
+                </label>
+                <input
+                  id="name"
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+                  {...form.register("name")}
+                />
+                <p className="mt-1 text-xs text-danger">{form.formState.errors.name?.message}</p>
+              </div>
+              <div>
+                <label htmlFor="email" className="mb-1 block text-sm text-textSecondary">
+                  Correo
+                </label>
+                <input
+                  id="email"
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+                  {...form.register("email")}
+                />
+                <p className="mt-1 text-xs text-danger">{form.formState.errors.email?.message}</p>
+              </div>
+              <div>
+                <label htmlFor="phone" className="mb-1 block text-sm text-textSecondary">
+                  Teléfono
+                </label>
+                <input
+                  id="phone"
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+                  {...form.register("phone")}
+                />
+                <p className="mt-1 text-xs text-danger">{form.formState.errors.phone?.message}</p>
+              </div>
+              <div>
+                <label htmlFor="documentId" className="mb-1 block text-sm text-textSecondary">
+                  Documento de identidad
+                </label>
+                <input
+                  id="documentId"
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+                  {...form.register("documentId")}
+                />
+                <p className="mt-1 text-xs text-danger">{form.formState.errors.documentId?.message}</p>
+              </div>
+              <div>
+                <label htmlFor="address" className="mb-1 block text-sm text-textSecondary">
+                  Dirección
+                </label>
+                <input
+                  id="address"
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+                  {...form.register("address")}
+                />
+                <p className="mt-1 text-xs text-danger">{form.formState.errors.address?.message}</p>
+              </div>
+              <div>
+                <label htmlFor="description" className="mb-1 block text-sm text-textSecondary">
+                  Descripción
+                </label>
+                <textarea
+                  id="description"
+                  rows={3}
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+                  {...form.register("description")}
+                />
+                <p className="mt-1 text-xs text-danger">{form.formState.errors.description?.message}</p>
+              </div>
+              <label className="flex items-center justify-between text-sm text-textSecondary">
+                Activo
+                <input type="checkbox" {...form.register("isActive")} />
+              </label>
+              <button
+                type="submit"
+                disabled={updateMutation.isPending || !form.formState.isValid}
+                className="w-full rounded-md bg-primary px-4 py-2 font-medium text-white disabled:opacity-50"
+              >
+                {updateMutation.isPending ? "Guardando..." : "Guardar cambios"}
+              </button>
+              {updateMutation.isError ? (
+                <p className="text-sm text-danger">{getErrorMessage(updateMutation.error)}</p>
+              ) : null}
+            </form>
+          ) : null}
         </div>
       ) : null}
     </section>

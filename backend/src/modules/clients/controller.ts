@@ -1,5 +1,6 @@
 // backend/src/modules/clients/controller.ts
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { parseOptionalPaginationQuery } from "../../shared/pagination.schema.js";
 import { clientIdParamsSchema, createClientSchema, updateClientSchema } from "./schema.js";
 import * as clientService from "./service.js";
 
@@ -17,13 +18,9 @@ const ensureActor = (request: FastifyRequest): { id: string; roles: string[] } =
 
 export const listClientsController = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
   const actor = ensureActor(request);
-  const clients = await clientService.listClients(actor.id, actor.roles);
-  reply.send({
-    data: clients,
-    total: clients.length,
-    page: 1,
-    limit: clients.length
-  });
+  const pagination = parseOptionalPaginationQuery(request.query);
+  const body = await clientService.listClients(actor.id, actor.roles, pagination);
+  reply.send(body);
 };
 
 export const createClientController = async (
