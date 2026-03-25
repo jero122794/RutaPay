@@ -25,7 +25,11 @@ export const clientsRouter = async (app: FastifyInstance): Promise<void> => {
   app.post(
     "/",
     {
-      preHandler: [authGuard, roleGuard(["ROUTE_MANAGER", "ADMIN"]), moduleGuard("CLIENTS")]
+      preHandler: [
+        authGuard,
+        roleGuard(["ROUTE_MANAGER", "ADMIN", "SUPER_ADMIN"]),
+        moduleGuard("CLIENTS")
+      ]
     },
     createClientController
   );

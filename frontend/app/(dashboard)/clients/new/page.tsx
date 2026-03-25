@@ -49,14 +49,18 @@ const createClientSchema = z.object({
     (v) => (v === "" || v === undefined || v === null ? undefined : v),
     z.string().max(300).optional()
   ),
-  password: z
-    .string()
-    .min(8)
-    .max(64)
-    .regex(/[A-Z]/, "Debe incluir una mayúscula")
-    .regex(/[a-z]/, "Debe incluir una minúscula")
-    .regex(/[0-9]/, "Debe incluir un número")
-    .regex(/[^A-Za-z0-9]/, "Debe incluir un símbolo"),
+  password: z.preprocess(
+    (v) => (v === "" || v === undefined || v === null ? undefined : v),
+    z
+      .string()
+      .min(8)
+      .max(64)
+      .regex(/[A-Z]/, "Debe incluir una mayúscula")
+      .regex(/[a-z]/, "Debe incluir una minúscula")
+      .regex(/[0-9]/, "Debe incluir un número")
+      .regex(/[^A-Za-z0-9]/, "Debe incluir un símbolo")
+      .optional()
+  ),
   routeId: z.string().cuid().optional()
 });
 
@@ -127,9 +131,9 @@ const ClientsNewPage = (): JSX.Element => {
         name: values.name,
         phone: values.phone,
         documentId: values.documentId,
-        password: values.password,
         routeId,
         ...(values.email?.trim() ? { email: values.email.trim() } : {}),
+        ...(values.password?.trim() ? { password: values.password } : {}),
         ...(values.address?.trim() ? { address: values.address.trim() } : {}),
         ...(values.description?.trim() ? { description: values.description.trim() } : {})
       });
@@ -221,6 +225,10 @@ const ClientsNewPage = (): JSX.Element => {
               <label htmlFor="email" className="mb-1 block text-sm text-textSecondary">
                 Correo (opcional)
               </label>
+              <p className="mb-1 text-xs text-textSecondary">
+                Si no asignas correo ni contraseña, el cliente queda solo registrado; podrás habilitar el acceso
+                más tarde desde su perfil.
+              </p>
               <input
                 id="email"
                 type="email"
@@ -232,11 +240,16 @@ const ClientsNewPage = (): JSX.Element => {
 
             <div>
               <label htmlFor="password" className="mb-1 block text-sm text-textSecondary">
-                Contraseña
+                Contraseña (opcional)
               </label>
+              <p className="mb-1 text-xs text-textSecondary">
+                Solo si quieres que pueda iniciar sesión ya; requiere al menos 8 caracteres con mayúscula,
+                minúscula, número y símbolo.
+              </p>
               <input
                 id="password"
                 type="password"
+                autoComplete="new-password"
                 className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
                 {...form.register("password")}
               />
@@ -305,7 +318,7 @@ const ClientsNewPage = (): JSX.Element => {
 
             <button
               type="submit"
-              disabled={form.formState.isSubmitting || !form.formState.isValid}
+              disabled={form.formState.isSubmitting}
               className="w-full rounded-md bg-primary px-4 py-2 font-medium text-white disabled:opacity-50"
             >
               {form.formState.isSubmitting ? "Creando..." : "Crear cliente"}

@@ -15,6 +15,8 @@ interface ClientView {
   description: string | null;
   documentId: string | null;
   isActive: boolean;
+  /** True when a password is set; user can sign in with document or email + password. */
+  canLoginApp: boolean;
   routeId: string;
   routeName: string;
   managerId: string;
@@ -57,6 +59,7 @@ const toClientViewById = async (clientId: string): Promise<ClientView> => {
     description: client.description,
     documentId: client.documentId,
     isActive: client.isActive,
+    canLoginApp: Boolean(client.passwordHash),
     routeId: routeClient.routeId,
     routeName: routeClient.route.name,
     managerId: routeClient.route.managerId,
@@ -174,6 +177,7 @@ export const listClients = async (
       description: client.description,
       documentId: client.documentId,
       isActive: client.isActive,
+      canLoginApp: Boolean(client.passwordHash),
       routeId: item.routeId,
       routeName: item.route.name,
       managerId: item.route.managerId,
@@ -206,13 +210,13 @@ export const createClient = async (
     throw new Error("Route not found.");
   }
 
-  const normalizedEmail = input.email?.trim()
-    ? input.email.trim().toLowerCase()
-    : `${input.documentId}@cliente.local`;
+  const emailNormalized = input.email?.trim() ? input.email.trim().toLowerCase() : null;
 
-  const existingByEmail = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-  if (existingByEmail) {
-    throw new Error("Email already exists.");
+  if (emailNormalized) {
+    const existingByEmail = await prisma.user.findUnique({ where: { email: emailNormalized } });
+    if (existingByEmail) {
+      throw new Error("Email already exists.");
+    }
   }
   const existingDocument = await prisma.user.findFirst({
     where: { documentId: input.documentId }
@@ -238,12 +242,15 @@ export const createClient = async (
     description = sanitizePlainText(input.description) ?? null;
   }
 
-  const passwordHash = await bcrypt.hash(input.password, 12);
+  const passwordHash = input.password?.trim()
+    ? await bcrypt.hash(input.password, 12)
+    : null;
+
   const created = await prisma.$transaction(async (tx) => {
     const user = await tx.user.create({
       data: {
         name: input.name,
-        email: normalizedEmail,
+        email: emailNormalized,
         phone: input.phone,
         address,
         description,
@@ -308,16 +315,19 @@ export const updateClient = async (
 ): Promise<ClientView> => {
   const current = await getClientById(id, actorId, actorRoles, actorBusinessId);
 
-  if (input.email) {
-    const existingEmailOwner = await prisma.user.findFirst({
-      where: {
-        email: input.email,
-        id: { not: current.id }
-      },
-      select: { id: true }
-    });
-    if (existingEmailOwner) {
-      throw new Error("Email already exists.");
+  if (input.email !== undefined) {
+    const nextEmail = input.email.trim() === "" ? null : input.email.trim().toLowerCase();
+    if (nextEmail) {
+      const existingEmailOwner = await prisma.user.findFirst({
+        where: {
+          email: nextEmail,
+          id: { not: current.id }
+        },
+        select: { id: true }
+      });
+      if (existingEmailOwner) {
+        throw new Error("Email already exists.");
+      }
     }
   }
 
@@ -334,11 +344,18 @@ export const updateClient = async (
     }
   }
 
+  const passwordHashUpdate =
+    input.password !== undefined && input.password.trim() !== ""
+      ? await bcrypt.hash(input.password, 12)
+      : undefined;
+
   await prisma.user.update({
     where: { id: current.id },
     data: {
       ...(input.name !== undefined ? { name: input.name } : {}),
-      ...(input.email !== undefined ? { email: input.email } : {}),
+      ...(input.email !== undefined
+        ? { email: input.email.trim() === "" ? null : input.email.trim().toLowerCase() }
+        : {}),
       ...(input.phone !== undefined ? { phone: input.phone } : {}),
       ...(input.address !== undefined
         ? {
@@ -355,7 +372,8 @@ export const updateClient = async (
           }
         : {}),
       ...(input.documentId !== undefined ? { documentId: input.documentId } : {}),
-      ...(input.isActive !== undefined ? { isActive: input.isActive } : {})
+      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      ...(passwordHashUpdate !== undefined ? { passwordHash: passwordHashUpdate } : {})
     }
   });
 

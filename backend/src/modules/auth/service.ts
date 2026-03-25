@@ -219,6 +219,12 @@ export const login = async (
     throw invalidCreds();
   }
 
+  if (!user.passwordHash) {
+    await bcrypt.compare(input.password, getDummyPasswordHash());
+    await recordLoginFailureByIp(_meta.ip);
+    throw invalidCreds();
+  }
+
   const validPassword = await bcrypt.compare(input.password, user.passwordHash);
   if (!validPassword) {
     await recordUserLoginFailure(user.id);

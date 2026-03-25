@@ -15,7 +15,7 @@ model User {
   address       String?
   description   String?
   documentId    String?   @unique
-  passwordHash  String
+  passwordHash  String?
   isActive      Boolean   @default(true)
   businessId    String?
   createdAt     DateTime  @default(now())
