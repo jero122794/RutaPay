@@ -2,7 +2,8 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useAuthStore } from "../store/authStore";
 
 interface ProvidersProps {
   children: React.ReactNode;
@@ -20,6 +21,13 @@ const Providers = ({ children }: ProvidersProps): JSX.Element => {
         }
       })
   );
+
+  useEffect(() => {
+    void (async (): Promise<void> => {
+      await Promise.resolve(useAuthStore.persist.rehydrate());
+      useAuthStore.getState().markAuthHydrated();
+    })();
+  }, []);
 
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 };

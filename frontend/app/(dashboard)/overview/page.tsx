@@ -4,7 +4,7 @@
 import axios from "axios";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import api from "../../../lib/api";
 import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { formatCOP } from "../../../lib/formatters";
@@ -75,14 +75,10 @@ const StatCard = ({ title, value, hint, tone = "default" }: StatCardProps): JSX.
 };
 
 const OverviewPage = (): JSX.Element => {
-  const [isHydrated, setIsHydrated] = useState(false);
   const [managerMetricsPage, setManagerMetricsPage] = useState(1);
   const [managerMetricsLimit, setManagerMetricsLimit] = useState<PageSize>(DEFAULT_PAGE_SIZE);
 
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
-
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const user = useAuthStore((state) => state.user);
   const role = pickPrimaryRole(getEffectiveRoles(user));
   const isAdminView = role === "ADMIN" || role === "SUPER_ADMIN";
@@ -94,7 +90,7 @@ const OverviewPage = (): JSX.Element => {
       const response = await api.get<ListResponse<RouteItem>>("/routes");
       return response.data;
     },
-    enabled: isAdminView
+    enabled: hasAuthHydrated && isAdminView
   });
 
   const loansQuery = useQuery({
@@ -103,7 +99,7 @@ const OverviewPage = (): JSX.Element => {
       const response = await api.get<ListResponse<LoanItem>>("/loans");
       return response.data;
     },
-    enabled: isAdminView
+    enabled: hasAuthHydrated && isAdminView
   });
 
   const paymentsQuery = useQuery({
@@ -112,7 +108,7 @@ const OverviewPage = (): JSX.Element => {
       const response = await api.get<ListResponse<PaymentItem>>("/payments");
       return response.data;
     },
-    enabled: isAdminView
+    enabled: hasAuthHydrated && isAdminView
   });
 
   const todayKey = getBogotaTodayKey();
@@ -123,7 +119,7 @@ const OverviewPage = (): JSX.Element => {
       const response = await api.get<ListResponse<RouteManagerClientItem>>("/clients");
       return response.data;
     },
-    enabled: isRouteManagerView
+    enabled: hasAuthHydrated && isRouteManagerView
   });
 
   const routeManagerRouteId = routeManagerClientsQuery.data?.data[0]?.routeId ?? "";
@@ -134,7 +130,7 @@ const OverviewPage = (): JSX.Element => {
       const response = await api.get<ListResponse<RouteManagerLoanItem>>("/loans");
       return response.data;
     },
-    enabled: isRouteManagerView
+    enabled: hasAuthHydrated && isRouteManagerView
   });
 
   const routeManagerPaymentsQuery = useQuery({
@@ -143,7 +139,7 @@ const OverviewPage = (): JSX.Element => {
       const response = await api.get<ListResponse<RouteManagerPaymentItem>>("/payments");
       return response.data;
     },
-    enabled: isRouteManagerView
+    enabled: hasAuthHydrated && isRouteManagerView
   });
 
   const routeManagerTreasuryBalanceQuery = useQuery({
@@ -154,7 +150,7 @@ const OverviewPage = (): JSX.Element => {
       );
       return response.data;
     },
-    enabled: isRouteManagerView && Boolean(routeManagerRouteId)
+    enabled: hasAuthHydrated && isRouteManagerView && Boolean(routeManagerRouteId)
   });
 
   const activeLoansForManager =
@@ -167,7 +163,7 @@ const OverviewPage = (): JSX.Element => {
         const response = await api.get<{ data: RouteManagerLoanScheduleItem[] }>(`/loans/${loan.id}/schedule`);
         return response.data;
       },
-      enabled: isRouteManagerView
+      enabled: hasAuthHydrated && isRouteManagerView
     }))
   });
 
@@ -203,7 +199,7 @@ const OverviewPage = (): JSX.Element => {
     (q) => (q.data?.data ?? []) as RouteManagerLoanScheduleItem[]
   );
 
-  if (!isHydrated) {
+  if (!hasAuthHydrated) {
     return (
       <section className="rounded-2xl border border-white/5 bg-surface-container p-6">
         <h1 className="font-headline text-2xl font-bold text-on-surface">Panel de Control</h1>

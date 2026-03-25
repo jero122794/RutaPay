@@ -29,15 +29,20 @@ interface AuthUser {
 
 interface AuthState {
   user: AuthUser | null;
+  /** True after persist rehydrate() finishes (client-only). Avoids SSR/client markup mismatch from persisted role. */
+  hasAuthHydrated: boolean;
   setUser: (user: AuthUser) => void;
   clearUser: () => void;
+  markAuthHydrated: () => void;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       user: null,
+      hasAuthHydrated: false,
       setUser: (user) => set({ user }),
+      markAuthHydrated: () => set({ hasAuthHydrated: true }),
       clearUser: () => {
         if (typeof window !== "undefined") {
           window.localStorage.removeItem("loan-app-access-token");
@@ -47,7 +52,9 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "loan-app-auth",
-      storage: createJSONStorage(() => localStorage)
+      storage: createJSONStorage(() => localStorage),
+      skipHydration: true,
+      partialize: (state) => ({ user: state.user })
     }
   )
 );
