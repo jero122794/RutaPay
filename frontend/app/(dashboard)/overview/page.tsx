@@ -1,10 +1,12 @@
 // frontend/app/(dashboard)/overview/page.tsx
 "use client";
 
+import axios from "axios";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { useEffect, useState } from "react";
 import api from "../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { formatCOP } from "../../../lib/formatters";
 import { useAuthStore } from "../../../store/authStore";
 import TablePagination from "../../../components/ui/TablePagination";
@@ -14,6 +16,14 @@ import {
   toBogotaDayKey,
   toBogotaDayKeyFromDate
 } from "../../../lib/bogota";
+
+const getErrorMessage = (error: unknown): string => {
+  if (axios.isAxiosError(error)) {
+    const message = (error.response?.data as { message?: string } | undefined)?.message;
+    return message ?? error.message;
+  }
+  return "Error desconocido.";
+};
 
 interface RouteItem {
   id: string;
@@ -74,7 +84,7 @@ const OverviewPage = (): JSX.Element => {
   }, []);
 
   const user = useAuthStore((state) => state.user);
-  const role = user?.roles[0] ?? "CLIENT";
+  const role = pickPrimaryRole(getEffectiveRoles(user));
   const isAdminView = role === "ADMIN" || role === "SUPER_ADMIN";
   const isRouteManagerView = role === "ROUTE_MANAGER";
 
@@ -224,7 +234,11 @@ const OverviewPage = (): JSX.Element => {
     return key === todayKey;
   }).length;
   const managerMetricsRows = [
-    { id: "clients", label: "Mis clientes", value: String(routeManagerClientsQuery.data?.data.length ?? 0) },
+    {
+      id: "clients",
+      label: "Mis clientes",
+      value: String(routeManagerClientsQuery.data?.data?.length ?? 0)
+    },
     { id: "active-loans", label: "Préstamos activos", value: String(activeLoansForManager.length) },
     { id: "active-loans-today", label: "Préstamos activos hoy", value: String(prestamosActivosHoyCount) }
   ];
@@ -254,6 +268,25 @@ const OverviewPage = (): JSX.Element => {
       return (
         <section className="rounded-2xl border border-white/5 bg-surface-container p-6">
           <p className="text-sm text-textSecondary">Cargando tu panel...</p>
+        </section>
+      );
+    }
+
+    const routeManagerFetchError =
+      routeManagerClientsQuery.isError || routeManagerLoansQuery.isError || routeManagerPaymentsQuery.isError;
+    if (routeManagerFetchError) {
+      const msg = routeManagerClientsQuery.isError
+        ? getErrorMessage(routeManagerClientsQuery.error)
+        : routeManagerLoansQuery.isError
+          ? getErrorMessage(routeManagerLoansQuery.error)
+          : getErrorMessage(routeManagerPaymentsQuery.error);
+      return (
+        <section className="rounded-2xl border border-white/5 bg-surface-container p-6">
+          <h1 className="font-headline text-2xl font-bold text-on-surface">Panel de Control</h1>
+          <p className="mt-2 text-sm text-danger">
+            No se pudieron cargar los datos del panel. Si acabas de iniciar sesión, cierra sesión y vuelve a entrar.
+            Detalle: {msg}
+          </p>
         </section>
       );
     }

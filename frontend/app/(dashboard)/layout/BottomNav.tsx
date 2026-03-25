@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import { NavIcon } from "./nav-icons";
 import { filterNavByModules, isNavItemActive, navItemsByRole, type NavItem } from "./nav-items";
@@ -11,7 +12,7 @@ import { filterNavByModules, isNavItemActive, navItemsByRole, type NavItem } fro
 const BottomNav = (): JSX.Element => {
   const pathname = usePathname();
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const modules = user?.modules;
 
   const items = useMemo<NavItem[]>(() => {

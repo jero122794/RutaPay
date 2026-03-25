@@ -1,5 +1,7 @@
 // frontend/lib/api.ts
 import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
+import { syncAuthStoreFromAccessToken } from "./effective-roles";
+import { useAuthStore } from "../store/authStore";
 
 interface RetryConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
@@ -90,8 +92,10 @@ api.interceptors.response.use(
     originalConfig._retry = true;
     try {
       const refresh = await api.post<RefreshResponse>("/auth/refresh", {});
-      setAccessToken(refresh.data.data.accessToken);
-      originalConfig.headers.Authorization = `Bearer ${refresh.data.data.accessToken}`;
+      const newToken = refresh.data.data.accessToken;
+      setAccessToken(newToken);
+      syncAuthStoreFromAccessToken(newToken, useAuthStore.getState().setUser, useAuthStore.getState().user);
+      originalConfig.headers.Authorization = `Bearer ${newToken}`;
       return api(originalConfig);
     } catch (refreshError) {
       setAccessToken("");

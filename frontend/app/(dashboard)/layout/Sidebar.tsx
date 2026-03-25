@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api, { setAccessToken } from "../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import { NavIcon } from "./nav-icons";
 import { filterNavByModules, isNavItemActive, navItemsByRole, type NavItem } from "./nav-items";
@@ -34,7 +35,7 @@ const Sidebar = ({ isTabletExpanded, onCloseTablet }: SidebarProps): JSX.Element
   const user = useAuthStore((state) => state.user);
   const clearUser = useAuthStore((state) => state.clearUser);
 
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const navItems = useMemo<NavItem[]>(() => {
     const base = navItemsByRole[role];
     return filterNavByModules(base, user?.modules);

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import api from "../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import { CommandPalette } from "./components/CommandPalette";
 
@@ -93,7 +94,7 @@ export const Topbar = ({ onToggleTabletSidebar }: TopbarProps): JSX.Element => {
   const pathname = usePathname();
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
 
   const [isOnline, setIsOnline] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
