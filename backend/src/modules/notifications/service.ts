@@ -37,6 +37,7 @@ interface ScheduleForAlert {
   status: "PENDING" | "PAID" | "OVERDUE" | "PARTIAL";
   loanId: string;
   clientId: string;
+  clientName: string;
   managerId: string;
 }
 
@@ -67,13 +68,14 @@ const mapToScheduleForAlert = (item: {
   dueDate: Date;
   status: "PENDING" | "PAID" | "OVERDUE" | "PARTIAL";
   loanId: string;
-  loan: { clientId: string; managerId: string };
+  loan: { clientId: string; managerId: string; client: { name: string } };
 }): ScheduleForAlert => ({
   id: item.id,
   dueDate: item.dueDate,
   status: item.status,
   loanId: item.loanId,
   clientId: item.loan.clientId,
+  clientName: item.loan.client.name,
   managerId: item.loan.managerId
 });
 
@@ -171,7 +173,10 @@ const buildNotifications = async (
       loan: {
         select: {
           clientId: true,
-          managerId: true
+          managerId: true,
+          client: {
+            select: { name: true }
+          }
         }
       }
     }
@@ -205,7 +210,7 @@ const buildNotifications = async (
       id: s.id,
       type: "OVERDUE_TODAY",
       title: "Cuota vencida",
-      message: `Tienes una cuota vencida para el cliente ${s.clientId}.`,
+      message: `Tienes una cuota vencida para el cliente ${s.clientName}.`,
       createdAt: s.dueDate
     });
   }
@@ -214,17 +219,19 @@ const buildNotifications = async (
       id: s.id,
       type: "UPCOMING_TOMORROW",
       title: "Cuota próxima",
-      message: `Próxima cuota el ${s.dueDate.toISOString().slice(0, 10)}.`,
+      message: `Próxima cuota el ${s.dueDate.toISOString().slice(0, 10)} para el cliente ${s.clientName}.`,
       createdAt: s.dueDate
     });
   }
 
   for (const clientId of criticalClients) {
+    const clientName =
+      scheduleItems.find((row) => row.clientId === clientId)?.clientName ?? "Cliente";
     items.push({
       id: `critical:${clientId}`,
       type: "CRITICAL_OVERDUE",
       title: "Mora crítica",
-      message: "El cliente tiene 2 o más cuotas en mora.",
+      message: `El cliente ${clientName} tiene 2 o más cuotas en mora.`,
       createdAt: now
     });
   }
