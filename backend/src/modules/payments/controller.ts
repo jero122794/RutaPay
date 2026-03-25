@@ -2,17 +2,10 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { clientIp, userAgentHeader, writeAuditLog } from "../../shared/audit.js";
 import { parseOptionalPaginationQuery } from "../../shared/pagination.schema.js";
+import { ensureActor } from "../../shared/request-actor.js";
 import { redis } from "../../shared/redis.js";
 import { createPaymentSchema, loanIdParamsSchema, paymentIdParamsSchema, reversePaymentSchema } from "./schema.js";
 import * as paymentService from "./service.js";
-
-const ensureActor = (request: FastifyRequest): { id: string; roles: string[] } => {
-  const actor = request.authUser;
-  if (!actor) {
-    throw new Error("Authentication required.");
-  }
-  return { id: actor.id, roles: actor.roles };
-};
 
 export const listPaymentsController = async (
   request: FastifyRequest,
@@ -20,7 +13,7 @@ export const listPaymentsController = async (
 ): Promise<void> => {
   const actor = ensureActor(request);
   const pagination = parseOptionalPaginationQuery(request.query);
-  const body = await paymentService.listPayments(actor.id, actor.roles, pagination);
+  const body = await paymentService.listPayments(actor.id, actor.roles, actor.businessId, pagination);
   reply.send(body);
 };
 
@@ -30,7 +23,7 @@ export const createPaymentController = async (
 ): Promise<void> => {
   const actor = ensureActor(request);
   const input = createPaymentSchema.parse(request.body);
-  const payment = await paymentService.createPayment(input, actor.id, actor.roles);
+  const payment = await paymentService.createPayment(input, actor.id, actor.roles, actor.businessId);
   await writeAuditLog({
     userId: actor.id,
     action: "PAYMENT_CREATE",
@@ -70,7 +63,13 @@ export const listPaymentsByLoanController = async (
   const actor = ensureActor(request);
   const { loanId } = loanIdParamsSchema.parse(request.params);
   const pagination = parseOptionalPaginationQuery(request.query);
-  const body = await paymentService.listPaymentsByLoan(loanId, actor.id, actor.roles, pagination);
+  const body = await paymentService.listPaymentsByLoan(
+    loanId,
+    actor.id,
+    actor.roles,
+    actor.businessId,
+    pagination
+  );
   reply.send(body);
 };
 
@@ -81,7 +80,7 @@ export const reversePaymentController = async (
   const actor = ensureActor(request);
   const { id } = paymentIdParamsSchema.parse(request.params);
   const input = reversePaymentSchema.parse(request.body);
-  const payment = await paymentService.reversePayment(id, input, actor.id, actor.roles);
+  const payment = await paymentService.reversePayment(id, input, actor.id, actor.roles, actor.businessId);
   await writeAuditLog({
     userId: actor.id,
     action: "PAYMENT_REVERSE",

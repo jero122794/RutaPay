@@ -5,7 +5,12 @@ import { assertLoanAccessForActor, loanRowWithoutRoute } from "../../shared/loan
 import type { PaginationQuery } from "../../shared/pagination.schema.js";
 import { prismaPaginationBounds } from "../../shared/pagination.schema.js";
 import { prisma } from "../../shared/prisma.js";
-import type { CalculateLoanInput, CreateLoanInput, UpdateLoanStatusInput } from "./schema.js";
+import type {
+  CalculateLoanInput,
+  CreateLoanInput,
+  UpdateLoanStatusInput,
+  UpdateLoanTermsInput
+} from "./schema.js";
 
 interface LoanView {
   id: string;
@@ -87,14 +92,23 @@ const frequencyDays: Record<"DAILY" | "WEEKLY" | "BIWEEKLY" | "MONTHLY", number>
 export const listLoans = async (
   actorId: string,
   actorRoles: string[],
+  actorBusinessId: string | null,
   pagination: PaginationQuery | null
 ): Promise<{ data: LoanView[]; total: number; page: number; limit: number }> => {
-  const isPrivileged = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
-  const where = isPrivileged
-    ? {}
-    : actorRoles.includes("ROUTE_MANAGER")
-      ? { managerId: actorId }
-      : { clientId: actorId };
+  const isSuper = actorRoles.includes("SUPER_ADMIN");
+  const isAdmin = actorRoles.includes("ADMIN") && !isSuper;
+  let where: Prisma.LoanWhereInput;
+  if (isSuper) {
+    where = {};
+  } else if (isAdmin) {
+    where = actorBusinessId
+      ? { route: { businessId: actorBusinessId } }
+      : { id: { in: [] } };
+  } else if (actorRoles.includes("ROUTE_MANAGER")) {
+    where = { managerId: actorId };
+  } else {
+    where = { clientId: actorId };
+  }
 
   const total = await prisma.loan.count({ where });
 
@@ -130,17 +144,24 @@ export const calculateLoanPreview = (input: CalculateLoanInput) => {
 export const createLoan = async (
   input: CreateLoanInput,
   actorId: string,
-  actorRoles: string[]
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<LoanView> => {
   const route = await prisma.route.findUnique({ where: { id: input.routeId } });
   if (!route) {
     throw new Error("Route not found.");
   }
 
-  const isPrivileged = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
+  const isSuper = actorRoles.includes("SUPER_ADMIN");
+  const isAdmin = actorRoles.includes("ADMIN") && !isSuper;
+  const isPrivileged = isSuper || isAdmin;
   const managerId = isPrivileged ? input.managerId ?? route.managerId : actorId;
 
-  if (!isPrivileged && route.managerId !== actorId) {
+  if (isAdmin) {
+    if (!actorBusinessId || route.businessId !== actorBusinessId) {
+      throw new Error("You do not have access to this route.");
+    }
+  } else if (!isSuper && route.managerId !== actorId) {
     throw new Error("You do not have access to this route.");
   }
 
@@ -209,16 +230,26 @@ export const createLoan = async (
 export const getLoanById = async (
   id: string,
   actorId: string,
-  actorRoles: string[]
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<LoanView> => {
-  const loan = await assertLoanAccessForActor(id, actorId, actorRoles);
+  const loan = await assertLoanAccessForActor(id, actorId, actorRoles, actorBusinessId);
   return mapLoan(loanRowWithoutRoute(loan));
 };
 
 export const updateLoanStatus = async (
   id: string,
-  input: UpdateLoanStatusInput
+  input: UpdateLoanStatusInput,
+  actorId: string,
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<LoanView> => {
+  await assertLoanAccessForActor(id, actorId, actorRoles, actorBusinessId);
+  const isAdmin =
+    actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
+  if (!isAdmin) {
+    throw new Error("Only administrators can change loan status.");
+  }
   const updated = await prisma.loan.update({
     where: { id },
     data: { status: input.status }
@@ -226,12 +257,92 @@ export const updateLoanStatus = async (
   return mapLoan(updated);
 };
 
+export const updateLoanTerms = async (
+  id: string,
+  input: UpdateLoanTermsInput,
+  actorId: string,
+  actorRoles: string[],
+  actorBusinessId: string | null
+): Promise<LoanView> => {
+  const loan = await assertLoanAccessForActor(id, actorId, actorRoles, actorBusinessId);
+  const row = loanRowWithoutRoute(loan);
+
+  if (row.status !== "ACTIVE") {
+    throw new Error("Only ACTIVE loans can have terms corrected.");
+  }
+
+  const [paymentCount, schedules] = await Promise.all([
+    prisma.payment.count({ where: { loanId: id } }),
+    prisma.paymentSchedule.findMany({ where: { loanId: id } })
+  ]);
+
+  if (paymentCount > 0) {
+    throw new Error("Cannot correct terms after payments have been registered.");
+  }
+
+  const hasCollected = schedules.some(
+    (s) => decimalToNumber(s.paidAmount) > 0 || s.status === "PAID" || s.status === "PARTIAL"
+  );
+  if (hasCollected) {
+    throw new Error("Cannot correct terms after installments have been collected.");
+  }
+
+  const principal = decimalToNumber(row.principal);
+  const interestPercent = input.interestRate;
+
+  const preview = calculateLoanPreview({
+    principal,
+    interestRate: interestPercent,
+    installmentCount: row.installmentCount,
+    frequency: input.frequency,
+    startDate: row.startDate,
+    excludeWeekends: false
+  });
+
+  const termDays = Math.max(
+    1,
+    Math.round((preview.endDate.getTime() - row.startDate.getTime()) / (24 * 60 * 60 * 1000))
+  );
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.paymentSchedule.deleteMany({ where: { loanId: id } });
+
+    const next = await tx.loan.update({
+      where: { id },
+      data: {
+        interestRate: interestPercent / 100,
+        frequency: input.frequency,
+        termDays,
+        installmentAmount: preview.installmentAmount,
+        totalAmount: preview.totalAmount,
+        totalInterest: preview.totalInterest,
+        endDate: preview.endDate
+      }
+    });
+
+    await tx.paymentSchedule.createMany({
+      data: preview.schedule.map((item) => ({
+        loanId: id,
+        installmentNumber: item.installmentNumber,
+        dueDate: item.dueDate,
+        amount: item.amount,
+        status: "PENDING" as const
+      }))
+    });
+
+    return next;
+  });
+
+  return mapLoan(updated);
+};
+
 export const getLoanSchedule = async (
   loanId: string,
   actorId: string,
-  actorRoles: string[]
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<ScheduleView[]> => {
-  await assertLoanAccessForActor(loanId, actorId, actorRoles);
+  await assertLoanAccessForActor(loanId, actorId, actorRoles, actorBusinessId);
 
   const schedule = await prisma.paymentSchedule.findMany({
     where: { loanId },

@@ -1,6 +1,7 @@
 // backend/src/modules/treasury/controller.ts
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { clientIp, userAgentHeader, writeAuditLog } from "../../shared/audit.js";
+import { ensureActor } from "../../shared/request-actor.js";
 import {
   creditRouteSchema,
   liquidationQuerySchema,
@@ -14,21 +15,18 @@ import {
 } from "./schema.js";
 import * as treasuryService from "./service.js";
 
-const ensureActor = (request: FastifyRequest): { id: string; roles: string[] } => {
-  const actor = request.authUser;
-  if (!actor) {
-    throw new Error("Authentication required.");
-  }
-  return { id: actor.id, roles: actor.roles };
-};
-
 export const getRouteBalanceController = async (
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> => {
   const actor = ensureActor(request);
   const { routeId } = routeIdParamsSchema.parse(request.params);
-  const result = await treasuryService.getRouteBalance(routeId, actor.id, actor.roles);
+  const result = await treasuryService.getRouteBalance(
+    routeId,
+    actor.id,
+    actor.roles,
+    actor.businessId
+  );
   reply.send({
     data: result
   });
@@ -40,7 +38,12 @@ export const creditRouteController = async (
 ): Promise<void> => {
   const actor = ensureActor(request);
   const input = creditRouteSchema.parse(request.body);
-  const result = await treasuryService.creditRouteBalance(input, actor.id);
+  const result = await treasuryService.creditRouteBalance(
+    input,
+    actor.id,
+    actor.roles,
+    actor.businessId
+  );
   await writeAuditLog({
     userId: actor.id,
     action: "TREASURY_ROUTE_CREDIT",
@@ -64,15 +67,29 @@ export const getLiquidationController = async (
   const { id } = managerIdParamsSchema.parse(request.params);
   const query = liquidationQuerySchema.parse(request.query);
 
-  const isAdmin = actor.roles.includes("ADMIN") || actor.roles.includes("SUPER_ADMIN");
+  const isSuper = actor.roles.includes("SUPER_ADMIN");
+  const isAdmin = actor.roles.includes("ADMIN");
   const isSelfManager = actor.roles.includes("ROUTE_MANAGER") && id === actor.id;
-  if (!isAdmin && !isSelfManager) {
+  if (!isSuper && !isAdmin && !isSelfManager) {
     reply.code(403).send({
       statusCode: 403,
       error: "Forbidden",
       message: "You can only view your own liquidation."
     });
     return;
+  }
+
+  if (isAdmin && !isSuper) {
+    try {
+      await treasuryService.assertManagerInBusinessScope(id, actor.roles, actor.businessId);
+    } catch {
+      reply.code(403).send({
+        statusCode: 403,
+        error: "Forbidden",
+        message: "You do not have access to this liquidation."
+      });
+      return;
+    }
   }
 
   const dateYmd = treasuryService.resolveLiquidationDate(query.date);
@@ -99,7 +116,14 @@ export const listLiquidationReviewsController = async (
 
   const query = liquidationReviewsListQuerySchema.parse(request.query);
   const dateYmd = treasuryService.resolveLiquidationDate(query.date);
-  const result = await treasuryService.listLiquidationReviewsForAdmin(dateYmd, query.page, query.limit);
+  const isSuper = actor.roles.includes("SUPER_ADMIN");
+  const result = await treasuryService.listLiquidationReviewsForAdmin(
+    dateYmd,
+    query.page,
+    query.limit,
+    actor.businessId,
+    isSuper
+  );
   reply.send({
     data: result.data,
     total: result.total,
@@ -178,7 +202,14 @@ export const approveLiquidationReviewController = async (
   const { managerId } = reviewManagerParamsSchema.parse(request.params);
   const body = liquidationReviewApproveBodySchema.parse(request.body);
   const dateYmd = treasuryService.resolveLiquidationDate(body.date);
-  const result = await treasuryService.approveLiquidationReview(actor.id, managerId, dateYmd, body.reviewNote);
+  const result = await treasuryService.approveLiquidationReview(
+    actor.id,
+    managerId,
+    dateYmd,
+    body.reviewNote,
+    actor.roles,
+    actor.businessId
+  );
   await writeAuditLog({
     userId: actor.id,
     action: "LIQUIDATION_APPROVE",
@@ -212,7 +243,14 @@ export const rejectLiquidationReviewController = async (
   const { managerId } = reviewManagerParamsSchema.parse(request.params);
   const body = liquidationReviewRejectBodySchema.parse(request.body);
   const dateYmd = treasuryService.resolveLiquidationDate(body.date);
-  const result = await treasuryService.rejectLiquidationReview(actor.id, managerId, dateYmd, body.reason);
+  const result = await treasuryService.rejectLiquidationReview(
+    actor.id,
+    managerId,
+    dateYmd,
+    body.reason,
+    actor.roles,
+    actor.businessId
+  );
   await writeAuditLog({
     userId: actor.id,
     action: "LIQUIDATION_REJECT",

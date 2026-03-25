@@ -6,17 +6,18 @@ import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import { NavIcon } from "./nav-icons";
-import { isNavItemActive, navItemsByRole, type NavItem } from "./nav-items";
+import { filterNavByModules, isNavItemActive, navItemsByRole, type NavItem } from "./nav-items";
 
 const BottomNav = (): JSX.Element => {
   const pathname = usePathname();
   const user = useAuthStore((state) => state.user);
   const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const modules = user?.modules;
 
   const items = useMemo<NavItem[]>(() => {
-    const list = navItemsByRole[role] ?? [];
+    const list = filterNavByModules(navItemsByRole[role] ?? [], modules);
     return list.filter((item) => item.href !== "/notifications");
-  }, [role]);
+  }, [role, modules]);
 
   return (
     <nav

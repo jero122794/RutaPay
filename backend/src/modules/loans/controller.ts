@@ -2,26 +2,20 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { clientIp, userAgentHeader, writeAuditLog } from "../../shared/audit.js";
 import { parseOptionalPaginationQuery } from "../../shared/pagination.schema.js";
+import { ensureActor } from "../../shared/request-actor.js";
 import {
   calculateLoanSchema,
   createLoanSchema,
   loanIdParamsSchema,
-  updateLoanStatusSchema
+  updateLoanStatusSchema,
+  updateLoanTermsSchema
 } from "./schema.js";
 import * as loanService from "./service.js";
-
-const ensureActor = (request: FastifyRequest): { id: string; roles: string[] } => {
-  const actor = request.authUser;
-  if (!actor) {
-    throw new Error("Authentication required.");
-  }
-  return { id: actor.id, roles: actor.roles };
-};
 
 export const listLoansController = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
   const actor = ensureActor(request);
   const pagination = parseOptionalPaginationQuery(request.query);
-  const body = await loanService.listLoans(actor.id, actor.roles, pagination);
+  const body = await loanService.listLoans(actor.id, actor.roles, actor.businessId, pagination);
   reply.send(body);
 };
 
@@ -40,7 +34,7 @@ export const calculateLoanController = async (
 export const createLoanController = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
   const actor = ensureActor(request);
   const input = createLoanSchema.parse(request.body);
-  const loan = await loanService.createLoan(input, actor.id, actor.roles);
+  const loan = await loanService.createLoan(input, actor.id, actor.roles, actor.businessId);
   await writeAuditLog({
     userId: actor.id,
     action: "LOAN_CREATE",
@@ -67,7 +61,7 @@ export const getLoanByIdController = async (
 ): Promise<void> => {
   const actor = ensureActor(request);
   const { id } = loanIdParamsSchema.parse(request.params);
-  const loan = await loanService.getLoanById(id, actor.id, actor.roles);
+  const loan = await loanService.getLoanById(id, actor.id, actor.roles, actor.businessId);
   reply.send({
     data: loan
   });
@@ -77,9 +71,16 @@ export const updateLoanStatusController = async (
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> => {
+  const actor = ensureActor(request);
   const { id } = loanIdParamsSchema.parse(request.params);
   const input = updateLoanStatusSchema.parse(request.body);
-  const loan = await loanService.updateLoanStatus(id, input);
+  const loan = await loanService.updateLoanStatus(
+    id,
+    input,
+    actor.id,
+    actor.roles,
+    actor.businessId
+  );
   reply.send({
     data: loan,
     message: "Loan status updated."
@@ -92,8 +93,40 @@ export const getLoanScheduleController = async (
 ): Promise<void> => {
   const actor = ensureActor(request);
   const { id } = loanIdParamsSchema.parse(request.params);
-  const schedule = await loanService.getLoanSchedule(id, actor.id, actor.roles);
+  const schedule = await loanService.getLoanSchedule(id, actor.id, actor.roles, actor.businessId);
   reply.send({
     data: schedule
+  });
+};
+
+export const updateLoanTermsController = async (
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> => {
+  const actor = ensureActor(request);
+  const { id } = loanIdParamsSchema.parse(request.params);
+  const input = updateLoanTermsSchema.parse(request.body);
+  const loan = await loanService.updateLoanTerms(
+    id,
+    input,
+    actor.id,
+    actor.roles,
+    actor.businessId
+  );
+  await writeAuditLog({
+    userId: actor.id,
+    action: "LOAN_TERMS_UPDATE",
+    resourceType: "loan",
+    resourceId: loan.id,
+    newValue: {
+      interestRatePercent: input.interestRate,
+      frequency: input.frequency
+    },
+    ip: clientIp(request),
+    userAgent: userAgentHeader(request)
+  });
+  reply.send({
+    data: loan,
+    message: "Loan terms updated."
   });
 };

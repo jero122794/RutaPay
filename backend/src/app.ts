@@ -7,12 +7,14 @@ import jwt from "@fastify/jwt";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { authRouter } from "./modules/auth/router.js";
+import { businessesRouter } from "./modules/businesses/router.js";
 import { clientsRouter } from "./modules/clients/router.js";
 import { loansRouter } from "./modules/loans/router.js";
 import { paymentsRouter } from "./modules/payments/router.js";
 import { routesRouter } from "./modules/routes/router.js";
 import { treasuryRouter } from "./modules/treasury/router.js";
 import { notificationsRouter } from "./modules/notifications/router.js";
+import { roleModulesRouter } from "./modules/role-modules/router.js";
 import { usersRouter } from "./modules/users/router.js";
 import { env } from "./shared/env.js";
 import { redis } from "./shared/redis.js";
@@ -109,6 +111,8 @@ export const buildApp = async (): Promise<FastifyInstance> => {
         })
       });
       await scope.register(usersRouter, { prefix: "/users" });
+      await scope.register(businessesRouter, { prefix: "/businesses" });
+      await scope.register(roleModulesRouter, { prefix: "/role-modules" });
       await scope.register(routesRouter, { prefix: "/routes" });
       await scope.register(clientsRouter, { prefix: "/clients" });
       await scope.register(loansRouter, { prefix: "/loans" });

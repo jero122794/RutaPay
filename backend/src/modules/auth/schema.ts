@@ -7,9 +7,15 @@ export const registerSchema = z.object({
     (value) => (value === "" || value === null || value === undefined ? undefined : value),
     z.string().email().optional()
   ),
-  phone: z.string().min(7).max(20).optional(),
-  address: z.string().min(5).max(160),
-  description: z.string().min(3).max(300),
+  phone: z.string().min(7).max(20),
+  address: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.string().max(160).optional()
+  ),
+  description: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.string().max(300).optional()
+  ),
   documentId: z.string().min(5).max(30),
   routeId: z.preprocess(
     (value) => (value === "" || value === null || value === undefined ? undefined : value),

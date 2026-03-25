@@ -1,7 +1,8 @@
 // backend/prisma/seed.ts
 import bcrypt from "bcryptjs";
-import { Prisma, PrismaClient, type RoleName } from "@prisma/client";
+import { Prisma, PrismaClient, type AppModule, type RoleName } from "@prisma/client";
 import { calculateLoan } from "../src/shared/loan-calculator.js";
+import { ALL_APP_MODULES } from "../src/shared/role-modules.js";
 
 const prisma = new PrismaClient();
 
@@ -9,17 +10,69 @@ interface SeedUser {
   name: string;
   email: string;
   phone: string;
+  documentId: string;
   password: string;
   role: RoleName;
 }
 
 const users: SeedUser[] = [
-  { name: "Super Admin", email: "superadmin@test.com", phone: "3000000001", password: "Admin123!", role: "SUPER_ADMIN" },
-  { name: "Admin", email: "admin@test.com", phone: "3000000002", password: "Admin123!", role: "ADMIN" },
-  { name: "Encargado Ruta", email: "encargado@test.com", phone: "3000000003", password: "Admin123!", role: "ROUTE_MANAGER" },
-  { name: "Cliente Uno", email: "cliente@test.com", phone: "3000000004", password: "Admin123!", role: "CLIENT" },
-  { name: "Cliente Dos", email: "cliente2@test.com", phone: "3000000005", password: "Admin123!", role: "CLIENT" }
+  {
+    name: "Super Admin",
+    email: "superadmin@test.com",
+    phone: "3000000001",
+    documentId: "900000001",
+    password: "Admin123!",
+    role: "SUPER_ADMIN"
+  },
+  {
+    name: "Admin",
+    email: "admin@test.com",
+    phone: "3000000002",
+    documentId: "900000002",
+    password: "Admin123!",
+    role: "ADMIN"
+  },
+  {
+    name: "Encargado Ruta",
+    email: "encargado@test.com",
+    phone: "3000000003",
+    documentId: "900000003",
+    password: "Admin123!",
+    role: "ROUTE_MANAGER"
+  },
+  {
+    name: "Cliente Uno",
+    email: "cliente@test.com",
+    phone: "3000000004",
+    documentId: "800000001",
+    password: "Admin123!",
+    role: "CLIENT"
+  },
+  {
+    name: "Cliente Dos",
+    email: "cliente2@test.com",
+    phone: "3000000005",
+    documentId: "800000002",
+    password: "Admin123!",
+    role: "CLIENT"
+  }
 ];
+
+const defaultGrants: Record<RoleName, AppModule[]> = {
+  SUPER_ADMIN: [...ALL_APP_MODULES],
+  ADMIN: [
+    "OVERVIEW",
+    "ROUTES",
+    "CLIENTS",
+    "LOANS",
+    "PAYMENTS",
+    "TREASURY",
+    "NOTIFICATIONS",
+    "USERS"
+  ],
+  ROUTE_MANAGER: ["OVERVIEW", "CLIENTS", "LOANS", "PAYMENTS", "TREASURY", "NOTIFICATIONS"],
+  CLIENT: ["OVERVIEW", "LOANS", "PAYMENTS", "NOTIFICATIONS"]
+};
 
 const run = async (): Promise<void> => {
   for (const roleName of ["SUPER_ADMIN", "ADMIN", "ROUTE_MANAGER", "CLIENT"] as const) {
@@ -30,20 +83,43 @@ const run = async (): Promise<void> => {
     });
   }
 
+  const business = await prisma.business.upsert({
+    where: { id: "seed-business-demo" },
+    update: { name: "Negocio Demo" },
+    create: {
+      id: "seed-business-demo",
+      name: "Negocio Demo"
+    }
+  });
+
+  await prisma.roleModuleGrant.deleteMany();
+  const grantRows: { roleName: RoleName; module: AppModule }[] = [];
+  for (const [roleName, modules] of Object.entries(defaultGrants) as [RoleName, AppModule[]][]) {
+    for (const module of modules) {
+      grantRows.push({ roleName, module });
+    }
+  }
+  await prisma.roleModuleGrant.createMany({ data: grantRows });
+
   for (const entry of users) {
     const passwordHash = await bcrypt.hash(entry.password, 12);
+    const businessId = entry.role === "SUPER_ADMIN" ? null : business.id;
     const user = await prisma.user.upsert({
       where: { email: entry.email },
       update: {
         name: entry.name,
         phone: entry.phone,
-        passwordHash
+        documentId: entry.documentId,
+        passwordHash,
+        businessId
       },
       create: {
         name: entry.name,
         email: entry.email,
         phone: entry.phone,
-        passwordHash
+        documentId: entry.documentId,
+        passwordHash,
+        businessId
       }
     });
 
@@ -74,13 +150,14 @@ const run = async (): Promise<void> => {
   const route = existingRoute
     ? await prisma.route.update({
         where: { id: existingRoute.id },
-        data: { name: "Ruta Norte", balance: 2000000 }
+        data: { name: "Ruta Norte", balance: 2000000, businessId: business.id }
       })
     : await prisma.route.create({
         data: {
           name: "Ruta Norte",
           managerId: manager.id,
-          balance: 2000000
+          balance: 2000000,
+          businessId: business.id
         }
       });
 
@@ -101,20 +178,25 @@ const run = async (): Promise<void> => {
   }
 
   const existingLoansCount = await prisma.loan.count();
-  if (existingLoansCount > 0) return;
+  if (existingLoansCount > 0) {
+    return;
+  }
 
   const now = new Date();
   const managerId = manager.id;
 
-  const loanForClient = async (clientId: string, input: {
-    principal: number;
-    interestRate: number;
-    installmentCount: number;
-    frequency: "DAILY" | "WEEKLY" | "BIWEEKLY" | "MONTHLY";
-    startDate: Date;
-    paidInstallmentNumbers: number[];
-    overdueInstallmentNumbers: number[];
-  }): Promise<void> => {
+  const loanForClient = async (
+    clientId: string,
+    input: {
+      principal: number;
+      interestRate: number;
+      installmentCount: number;
+      frequency: "DAILY" | "WEEKLY" | "BIWEEKLY" | "MONTHLY";
+      startDate: Date;
+      paidInstallmentNumbers: number[];
+      overdueInstallmentNumbers: number[];
+    }
+  ): Promise<void> => {
     const preview = calculateLoan({
       principal: input.principal,
       interestRate: input.interestRate,
@@ -191,7 +273,6 @@ const run = async (): Promise<void> => {
     });
   };
 
-  // Client 1: 1 cuota en mora (installmentNumber 1) y 1 pago registrado (installmentNumber 2)
   const client1Start = new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000);
   await loanForClient(clientOne.id, {
     principal: 500000,
@@ -203,7 +284,6 @@ const run = async (): Promise<void> => {
     overdueInstallmentNumbers: [1]
   });
 
-  // Client 2: plan activo con cuotas pendientes (sin mora)
   const client2Start = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
   await loanForClient(clientTwo.id, {
     principal: 700000,

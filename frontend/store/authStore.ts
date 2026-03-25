@@ -6,11 +6,25 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 export type UserRole = "SUPER_ADMIN" | "ADMIN" | "ROUTE_MANAGER" | "CLIENT";
 
+export type AppModuleKey =
+  | "OVERVIEW"
+  | "ROUTES"
+  | "CLIENTS"
+  | "LOANS"
+  | "PAYMENTS"
+  | "TREASURY"
+  | "USERS"
+  | "NOTIFICATIONS"
+  | "BUSINESSES"
+  | "ROLE_MODULES";
+
 interface AuthUser {
   id: string;
   name: string;
   email: string;
   roles: UserRole[];
+  modules: AppModuleKey[];
+  businessId: string | null;
 }
 
 interface AuthState {

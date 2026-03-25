@@ -97,12 +97,22 @@ const mapRouteRows = (routes: RouteListRow[]): RouteView[] =>
   }));
 
 export const listRoutes = async (
+  actorRoles: string[],
+  actorBusinessId: string | null,
   pagination: PaginationQuery | null
 ): Promise<{ data: RouteView[]; total: number; page: number; limit: number }> => {
-  const total = await prisma.route.count();
+  const isSuper = actorRoles.includes("SUPER_ADMIN");
+  const where = isSuper
+    ? {}
+    : actorBusinessId
+      ? { businessId: actorBusinessId }
+      : { id: { in: [] } };
+
+  const total = await prisma.route.count({ where });
 
   if (!pagination) {
     const routes = await prisma.route.findMany({
+      where,
       include: {
         manager: {
           select: { name: true }
@@ -115,6 +125,7 @@ export const listRoutes = async (
 
   const { skip, take, page } = prismaPaginationBounds(total, pagination.page, pagination.limit);
   const routes = await prisma.route.findMany({
+    where,
     include: {
       manager: {
         select: { name: true }
@@ -161,13 +172,44 @@ export const listRoutesByManagerId = async (
   return { data: mapRouteRows(routes), total, page, limit: pagination.limit };
 };
 
-export const createRoute = async (input: CreateRouteInput): Promise<RouteView> => {
+export const createRoute = async (
+  input: CreateRouteInput,
+  actorRoles: string[],
+  actorBusinessId: string | null
+): Promise<RouteView> => {
   await ensureManagerRole(input.managerId);
+
+  const manager = await prisma.user.findUnique({
+    where: { id: input.managerId },
+    select: { businessId: true }
+  });
+  if (!manager) {
+    throw new Error("Manager not found.");
+  }
+
+  const isSuper = actorRoles.includes("SUPER_ADMIN");
+  let businessId: string | null;
+  if (isSuper) {
+    businessId = manager.businessId ?? actorBusinessId ?? null;
+  } else {
+    if (!actorBusinessId) {
+      throw new Error("Admin must belong to a business.");
+    }
+    if (manager.businessId !== actorBusinessId) {
+      throw new Error("Manager must belong to your business.");
+    }
+    businessId = actorBusinessId;
+  }
+
+  if (!businessId) {
+    throw new Error("Assign the route manager to a business before creating a route.");
+  }
 
   const created = await prisma.route.create({
     data: {
       name: input.name,
-      managerId: input.managerId
+      managerId: input.managerId,
+      businessId
     }
   });
 
@@ -177,22 +219,67 @@ export const createRoute = async (input: CreateRouteInput): Promise<RouteView> =
 export const getRouteById = async (
   id: string,
   actorId: string,
-  actorRoles: string[]
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<RouteView> => {
-  const route = await routeViewById(id);
-  const isPrivileged = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
-  const isRouteManagerOwner = actorRoles.includes("ROUTE_MANAGER") && route.managerId === actorId;
+  const raw = await prisma.route.findUnique({
+    where: { id },
+    include: {
+      manager: {
+        select: { name: true }
+      }
+    }
+  });
 
-  if (!isPrivileged && !isRouteManagerOwner) {
+  if (!raw) {
+    throw new Error("Route not found.");
+  }
+
+  const isSuper = actorRoles.includes("SUPER_ADMIN");
+  const isAdmin = actorRoles.includes("ADMIN") && !isSuper;
+  const isRouteManagerOwner = actorRoles.includes("ROUTE_MANAGER") && raw.managerId === actorId;
+
+  if (isAdmin) {
+    if (!actorBusinessId || raw.businessId !== actorBusinessId) {
+      throw new Error("You do not have access to this route.");
+    }
+  } else if (!isSuper && !isRouteManagerOwner) {
     throw new Error("You do not have access to this route.");
   }
 
-  return route;
+  return {
+    id: raw.id,
+    name: raw.name,
+    managerId: raw.managerId,
+    managerName: raw.manager.name,
+    balance: decimalToNumber(raw.balance),
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt
+  };
 };
 
-export const updateRoute = async (id: string, input: UpdateRouteInput): Promise<RouteView> => {
+export const updateRoute = async (
+  id: string,
+  input: UpdateRouteInput,
+  actorId: string,
+  actorRoles: string[],
+  actorBusinessId: string | null
+): Promise<RouteView> => {
+  await getRouteById(id, actorId, actorRoles, actorBusinessId);
+
   if (input.managerId) {
     await ensureManagerRole(input.managerId);
+    const manager = await prisma.user.findUnique({
+      where: { id: input.managerId },
+      select: { businessId: true }
+    });
+    if (!manager) {
+      throw new Error("Manager not found.");
+    }
+    const isSuper = actorRoles.includes("SUPER_ADMIN");
+    if (!isSuper && actorBusinessId && manager.businessId !== actorBusinessId) {
+      throw new Error("Manager must belong to your business.");
+    }
   }
 
   await prisma.route.update({
@@ -209,8 +296,11 @@ export const updateRoute = async (id: string, input: UpdateRouteInput): Promise<
 export const addBalanceToRoute = async (
   routeId: string,
   input: AddBalanceInput,
-  createdById: string
+  createdById: string,
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<RouteView> => {
+  await getRouteById(routeId, createdById, actorRoles, actorBusinessId);
   await prisma.$transaction(async (tx) => {
     await tx.route.update({
       where: { id: routeId },
@@ -238,14 +328,10 @@ export const addBalanceToRoute = async (
 export const getRouteSummary = async (
   routeId: string,
   actorId: string,
-  actorRoles: string[]
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<RouteSummary> => {
-  const route = await routeViewById(routeId);
-  const isPrivileged = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
-  const isRouteManagerOwner = actorRoles.includes("ROUTE_MANAGER") && route.managerId === actorId;
-  if (!isPrivileged && !isRouteManagerOwner) {
-    throw new Error("You do not have access to this route.");
-  }
+  const route = await getRouteById(routeId, actorId, actorRoles, actorBusinessId);
 
   const [clientsCount, activeLoans, portfolioAgg, activeLoanAgg, overdueInstallments, payments] =
     await Promise.all([

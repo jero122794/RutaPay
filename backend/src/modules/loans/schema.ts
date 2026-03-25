@@ -27,6 +27,12 @@ export const updateLoanStatusSchema = z.object({
   status: z.enum(["ACTIVE", "COMPLETED", "DEFAULTED", "RESTRUCTURED"])
 });
 
+export const updateLoanTermsSchema = z.object({
+  interestRate: z.number().int().positive(),
+  frequency: z.enum(["DAILY", "WEEKLY", "BIWEEKLY", "MONTHLY"])
+});
+
 export type CreateLoanInput = z.infer<typeof createLoanSchema>;
 export type CalculateLoanInput = z.infer<typeof calculateLoanSchema>;
 export type UpdateLoanStatusInput = z.infer<typeof updateLoanStatusSchema>;
+export type UpdateLoanTermsInput = z.infer<typeof updateLoanTermsSchema>;

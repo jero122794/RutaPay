@@ -2,6 +2,7 @@
 import type { FastifyInstance } from "fastify";
 import { authGuard } from "../../middleware/auth.middleware.js";
 import { paymentIdempotencyPreHandler } from "../../middleware/idempotency.middleware.js";
+import { moduleGuard } from "../../middleware/module.middleware.js";
 import {
   verifyLoanOwnershipFromPaymentBody,
   verifyLoanOwnershipParam
@@ -17,7 +18,13 @@ import {
 export const paymentsRouter = async (app: FastifyInstance): Promise<void> => {
   app.get(
     "/",
-    { preHandler: [authGuard, roleGuard(["ADMIN", "SUPER_ADMIN", "ROUTE_MANAGER"])] },
+    {
+      preHandler: [
+        authGuard,
+        roleGuard(["ADMIN", "SUPER_ADMIN", "ROUTE_MANAGER"]),
+        moduleGuard("PAYMENTS")
+      ]
+    },
     listPaymentsController
   );
   app.post(
@@ -26,6 +33,7 @@ export const paymentsRouter = async (app: FastifyInstance): Promise<void> => {
       preHandler: [
         authGuard,
         roleGuard(["ROUTE_MANAGER", "ADMIN", "SUPER_ADMIN"]),
+        moduleGuard("PAYMENTS"),
         paymentIdempotencyPreHandler,
         verifyLoanOwnershipFromPaymentBody
       ]
@@ -38,6 +46,7 @@ export const paymentsRouter = async (app: FastifyInstance): Promise<void> => {
       preHandler: [
         authGuard,
         roleGuard(["SUPER_ADMIN", "ADMIN", "ROUTE_MANAGER", "CLIENT"]),
+        moduleGuard("PAYMENTS"),
         verifyLoanOwnershipParam("loanId")
       ]
     },
@@ -45,7 +54,9 @@ export const paymentsRouter = async (app: FastifyInstance): Promise<void> => {
   );
   app.post(
     "/:id/reverse",
-    { preHandler: [authGuard, roleGuard(["SUPER_ADMIN", "ADMIN"])] },
+    {
+      preHandler: [authGuard, roleGuard(["SUPER_ADMIN", "ADMIN"]), moduleGuard("PAYMENTS")]
+    },
     reversePaymentController
   );
 };

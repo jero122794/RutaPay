@@ -8,7 +8,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import api, { setAccessToken } from "../../../lib/api";
-import { useAuthStore, type UserRole } from "../../../store/authStore";
+import { useAuthStore, type AppModuleKey, type UserRole } from "../../../store/authStore";
 
 const loginSchema = z.object({
   identifier: z.string().min(3, "Ingresa cédula o correo"),
@@ -25,6 +25,8 @@ interface LoginResponse {
       name: string;
       email: string;
       roles: string[];
+      businessId: string | null;
+      modules: string[];
     };
   };
   message: string;
@@ -54,8 +56,10 @@ const LoginPage = (): JSX.Element => {
       setUser({
         id: response.data.data.user.id,
         name: response.data.data.user.name,
-        email: response.data.data.user.email,
-        roles: response.data.data.user.roles as UserRole[]
+        email: response.data.data.user.email ?? "",
+        roles: response.data.data.user.roles as UserRole[],
+        businessId: response.data.data.user.businessId ?? null,
+        modules: (response.data.data.user.modules ?? []) as AppModuleKey[]
       });
       setSuccess(`Bienvenido, ${response.data.data.user.name}.`);
       router.push("/overview");

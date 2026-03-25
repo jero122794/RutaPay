@@ -7,11 +7,20 @@ export const clientIdParamsSchema = z.object({
 
 export const createClientSchema = z.object({
   name: z.string().min(2).max(100),
-  email: z.string().email(),
-  phone: z.string().min(7).max(20).optional(),
-  address: z.string().min(5).max(160),
-  description: z.string().min(3).max(300),
+  phone: z.string().min(7).max(20),
   documentId: z.string().min(5).max(30),
+  email: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.string().email().optional()
+  ),
+  address: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.string().max(160).optional()
+  ),
+  description: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.string().max(300).optional()
+  ),
   password: z
     .string()
     .min(8)
@@ -30,8 +39,14 @@ export const updateClientSchema = z.object({
     z.string().email().optional()
   ),
   phone: z.string().min(7).max(20).optional(),
-  address: z.string().min(5).max(160).optional(),
-  description: z.string().min(3).max(300).optional(),
+  address: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.string().max(160).optional()
+  ),
+  description: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.string().max(300).optional()
+  ),
   documentId: z.string().min(5).max(30).optional(),
   isActive: z.boolean().optional()
 });

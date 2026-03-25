@@ -10,16 +10,18 @@ datasource db {
 model User {
   id            String    @id @default(cuid())
   name          String
-  email         String    @unique
+  email         String?   @unique
   phone         String?
   address       String?
   description   String?
   documentId    String?   @unique
   passwordHash  String
   isActive      Boolean   @default(true)
+  businessId    String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  business      Business? @relation(fields: [businessId], references: [id])
   roles         UserRole[]
   managedRoute  Route[]        @relation("RouteManager")
   clientLoans   Loan[]         @relation("ClientLoans")
@@ -52,18 +54,51 @@ model UserRole {
   @@id([userId, roleId])
 }
 
+model Business {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users  User[]
+  routes Route[]
+}
+
 model Route {
   id          String   @id @default(cuid())
   name        String
   managerId   String
+  businessId  String?
   balance     Decimal  @default(0) @db.Decimal(12,2)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   manager     User     @relation("RouteManager", fields: [managerId], references: [id])
+  business    Business? @relation(fields: [businessId], references: [id])
   clients     RouteClient[]
   loans       Loan[]
   balanceLogs ManagerBalanceLog[]
+}
+
+/// Which dashboard modules each role may access (SUPER_ADMIN bypasses in code and may edit grants).
+model RoleModuleGrant {
+  roleName RoleName
+  module   AppModule
+
+  @@id([roleName, module])
+}
+
+enum AppModule {
+  OVERVIEW
+  ROUTES
+  CLIENTS
+  LOANS
+  PAYMENTS
+  TREASURY
+  USERS
+  NOTIFICATIONS
+  BUSINESSES
+  ROLE_MODULES
 }
 
 model RouteClient {

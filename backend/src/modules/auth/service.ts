@@ -1,5 +1,5 @@
 // backend/src/modules/auth/service.ts
-import type { RoleName, User } from "@prisma/client";
+import type { AppModule, RoleName, User } from "@prisma/client";
 import type { FastifyError } from "fastify";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -14,6 +14,7 @@ import {
   recordUserLoginFailure
 } from "../../shared/login-security.js";
 import { hashRefreshToken } from "../../shared/token-hash.js";
+import { loadModulesForRoles } from "../../shared/role-modules.js";
 import type { LoginInput, RegisterInput } from "./schema.js";
 
 interface AuthTokens {
@@ -21,13 +22,17 @@ interface AuthTokens {
   refreshToken: string;
 }
 
+interface AuthUserPayload {
+  id: string;
+  name: string;
+  email: string;
+  roles: RoleName[];
+  businessId: string | null;
+  modules: AppModule[];
+}
+
 interface AuthResponse {
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    roles: RoleName[];
-  };
+  user: AuthUserPayload;
   tokens: AuthTokens;
 }
 
@@ -35,6 +40,8 @@ interface JwtPayload {
   sub: string;
   email: string;
   roles: RoleName[];
+  businessId: string | null;
+  modules: AppModule[];
   jti?: string;
 }
 
@@ -64,11 +71,26 @@ const loadRolesByUserId = async (userId: string): Promise<RoleName[]> => {
   return userRoles.map((entry) => entry.role.name);
 };
 
+const buildAuthUserPayload = async (user: User, roles: RoleName[]): Promise<AuthUserPayload> => {
+  const modules = await loadModulesForRoles(roles);
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email ?? "",
+    roles,
+    businessId: user.businessId ?? null,
+    modules
+  };
+};
+
 const createTokens = async (user: User, roles: RoleName[]): Promise<AuthTokens> => {
+  const modules = await loadModulesForRoles(roles);
   const payload: JwtPayload = {
     sub: user.id,
-    email: user.email,
-    roles
+    email: user.email ?? "",
+    roles,
+    businessId: user.businessId ?? null,
+    modules
   };
 
   const accessToken = jwt.sign(payload, env.JWT_SECRET, {
@@ -93,17 +115,19 @@ const createTokens = async (user: User, roles: RoleName[]): Promise<AuthTokens> 
 };
 
 export const register = async (input: RegisterInput): Promise<AuthResponse> => {
-  if (input.email) {
-    const existing = await prisma.user.findUnique({ where: { email: input.email } });
-    if (existing) {
-      throw new Error("Email already exists.");
-    }
+  const normalizedEmail = input.email?.trim()
+    ? input.email.trim().toLowerCase()
+    : `${input.documentId}@cliente.local`;
+
+  const existingByEmail = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  if (existingByEmail) {
+    throw new Error("Email already exists.");
   }
+
   const existingDocument = await prisma.user.findFirst({ where: { documentId: input.documentId } });
   if (existingDocument) {
     throw new Error("Document already exists.");
   }
-  const normalizedEmail = input.email ?? `${input.documentId}@cliente.local`;
 
   const passwordHash = await bcrypt.hash(input.password, 12);
   const clientRole = await prisma.role.findUnique({ where: { name: "CLIENT" } });
@@ -111,6 +135,7 @@ export const register = async (input: RegisterInput): Promise<AuthResponse> => {
     throw new Error("CLIENT role not found. Run seed first.");
   }
 
+  let routeBusinessId: string | null = null;
   if (input.routeId) {
     const route = await prisma.route.findUnique({ where: { id: input.routeId } });
     if (!route) {
@@ -120,19 +145,16 @@ export const register = async (input: RegisterInput): Promise<AuthResponse> => {
       err.statusCode = 400;
       throw err;
     }
+    routeBusinessId = route.businessId ?? null;
   }
 
-  const description = sanitizePlainText(input.description);
-  const address = sanitizePlainText(input.address);
-  if (!description || description.length < 3) {
-    const err = new Error("Descripción inválida tras la sanitización.") as FastifyError;
-    err.statusCode = 400;
-    throw err;
+  let address: string | null = null;
+  if (input.address !== undefined && input.address.trim() !== "") {
+    address = sanitizePlainText(input.address) ?? null;
   }
-  if (!address || address.length < 5) {
-    const err = new Error("Dirección inválida tras la sanitización.") as FastifyError;
-    err.statusCode = 400;
-    throw err;
+  let description: string | null = null;
+  if (input.description !== undefined && input.description.trim() !== "") {
+    description = sanitizePlainText(input.description) ?? null;
   }
 
   const user = await prisma.$transaction(async (tx) => {
@@ -145,6 +167,7 @@ export const register = async (input: RegisterInput): Promise<AuthResponse> => {
         description,
         documentId: input.documentId,
         passwordHash,
+        businessId: routeBusinessId,
         roles: {
           create: {
             roleId: clientRole.id
@@ -167,10 +190,8 @@ export const register = async (input: RegisterInput): Promise<AuthResponse> => {
 
   const roles = await loadRolesByUserId(user.id);
   const tokens = await createTokens(user, roles);
-  return {
-    user: { id: user.id, name: user.name, email: user.email, roles },
-    tokens
-  };
+  const authUser = await buildAuthUserPayload(user, roles);
+  return { user: authUser, tokens };
 };
 
 export const login = async (
@@ -209,10 +230,8 @@ export const login = async (
 
   const roles = await loadRolesByUserId(user.id);
   const tokens = await createTokens(user, roles);
-  return {
-    user: { id: user.id, name: user.name, email: user.email, roles },
-    tokens
-  };
+  const authUser = await buildAuthUserPayload(user, roles);
+  return { user: authUser, tokens };
 };
 
 export const refresh = async (token: string): Promise<{ accessToken: string; refreshToken: string }> => {
@@ -255,23 +274,33 @@ export const refresh = async (token: string): Promise<{ accessToken: string; ref
     throw err;
   }
 
-  const roles = await loadRolesByUserId(payload.sub);
+  const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+  if (!user || !user.isActive) {
+    await prisma.refreshToken.delete({ where: { id: dbToken.id } });
+    const err = new Error("Sesión inválida. Inicie sesión de nuevo.") as FastifyError;
+    err.statusCode = 401;
+    err.name = "Unauthorized";
+    throw err;
+  }
 
-  const nextAccessToken = jwt.sign(
-    {
-      sub: payload.sub,
-      email: payload.email,
-      roles
-    },
-    env.JWT_SECRET,
-    { expiresIn: ACCESS_TOKEN_TTL_SECONDS }
-  );
+  const roles = await loadRolesByUserId(payload.sub);
+  const modules = await loadModulesForRoles(roles);
+
+  const nextPayload: JwtPayload = {
+    sub: user.id,
+    email: user.email ?? "",
+    roles,
+    businessId: user.businessId ?? null,
+    modules
+  };
+
+  const nextAccessToken = jwt.sign(nextPayload, env.JWT_SECRET, {
+    expiresIn: ACCESS_TOKEN_TTL_SECONDS
+  });
 
   const nextRefreshToken = jwt.sign(
     {
-      sub: payload.sub,
-      email: payload.email,
-      roles,
+      ...nextPayload,
       jti: randomUUID()
     },
     env.JWT_REFRESH_SECRET,

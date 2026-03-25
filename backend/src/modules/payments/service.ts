@@ -64,14 +64,20 @@ const mapPayment = (payment: {
 export const listPayments = async (
   actorId: string,
   actorRoles: string[],
+  actorBusinessId: string | null,
   pagination: PaginationQuery | null
 ): Promise<{ data: PaymentView[]; total: number; page: number; limit: number }> => {
-  const isPrivileged = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
-  const where = isPrivileged
+  const isSuper = actorRoles.includes("SUPER_ADMIN");
+  const isAdmin = actorRoles.includes("ADMIN") && !isSuper;
+  const where = isSuper
     ? {}
-    : actorRoles.includes("ROUTE_MANAGER")
-      ? { loan: { route: { managerId: actorId } } }
-      : { loan: { clientId: actorId } };
+    : isAdmin
+      ? actorBusinessId
+        ? { loan: { route: { businessId: actorBusinessId } } }
+        : { id: { in: [] } }
+      : actorRoles.includes("ROUTE_MANAGER")
+        ? { loan: { route: { managerId: actorId } } }
+        : { loan: { clientId: actorId } };
 
   const include = {
     loan: {
@@ -108,14 +114,15 @@ export const listPayments = async (
 export const createPayment = async (
   input: CreatePaymentInput,
   actorId: string,
-  actorRoles: string[]
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<PaymentView> => {
   const canRegister = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN") || actorRoles.includes("ROUTE_MANAGER");
   if (!canRegister) {
     throw new Error("You do not have permission to register payments.");
   }
 
-  await assertLoanAccessForActor(input.loanId, actorId, actorRoles);
+  await assertLoanAccessForActor(input.loanId, actorId, actorRoles, actorBusinessId);
 
   const notes = sanitizePlainText(input.notes);
 
@@ -262,9 +269,10 @@ export const listPaymentsByLoan = async (
   loanId: string,
   actorId: string,
   actorRoles: string[],
+  actorBusinessId: string | null,
   pagination: PaginationQuery | null
 ): Promise<{ data: PaymentView[]; total: number; page: number; limit: number }> => {
-  await assertLoanAccessForActor(loanId, actorId, actorRoles);
+  await assertLoanAccessForActor(loanId, actorId, actorRoles, actorBusinessId);
   const where = { loanId };
   const include = {
     loan: {
@@ -302,7 +310,8 @@ export const reversePayment = async (
   paymentId: string,
   input: ReversePaymentInput,
   actorId: string,
-  actorRoles: string[]
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<PaymentView> => {
   const isPrivileged = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
   if (!isPrivileged) {
@@ -324,6 +333,8 @@ export const reversePayment = async (
   if (!payment) {
     throw new Error("Payment not found.");
   }
+
+  await assertLoanAccessForActor(payment.loanId, actorId, actorRoles, actorBusinessId);
   if (payment.status === "REVERSED") {
     throw new Error("Payment is already reversed.");
   }

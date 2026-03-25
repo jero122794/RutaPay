@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import Link from "next/link";
@@ -23,7 +23,7 @@ interface ListResponse<T> {
 interface UserItem {
   id: string;
   name: string;
-  email: string;
+  email: string | null;
   phone: string | null;
   isActive: boolean;
   createdAt: string;
@@ -39,11 +39,15 @@ const getErrorMessage = (error: unknown): string => {
   return "Error desconocido.";
 };
 
-const assignRolesSchema = z.object({
+const assignRolesSchemaSuper = z.object({
   roles: z.array(z.enum(["SUPER_ADMIN", "ADMIN", "ROUTE_MANAGER", "CLIENT"])).min(1)
 });
 
-type AssignRolesValues = z.infer<typeof assignRolesSchema>;
+const assignRolesSchemaAdmin = z.object({
+  roles: z.array(z.enum(["ROUTE_MANAGER", "CLIENT"])).min(1)
+});
+
+type AssignRolesValues = z.infer<typeof assignRolesSchemaSuper>;
 
 const UsersPage = (): JSX.Element => {
   const user = useAuthStore((state) => state.user);
@@ -79,9 +83,21 @@ const UsersPage = (): JSX.Element => {
   }, [usersQuery.data?.data, selectedUserId]);
 
   const allRoles = useMemo(() => ["SUPER_ADMIN", "ADMIN", "ROUTE_MANAGER", "CLIENT"] as const, []);
+  const assignableRoles = useMemo((): readonly ("SUPER_ADMIN" | "ADMIN" | "ROUTE_MANAGER" | "CLIENT")[] => {
+    if (role === "SUPER_ADMIN") {
+      return allRoles;
+    }
+    return ["ROUTE_MANAGER", "CLIENT"];
+  }, [allRoles, role]);
+
+  const assignRolesResolver = useMemo<Resolver<AssignRolesValues>>(
+    () =>
+      zodResolver(role === "SUPER_ADMIN" ? assignRolesSchemaSuper : assignRolesSchemaAdmin) as Resolver<AssignRolesValues>,
+    [role]
+  );
 
   const form = useForm<AssignRolesValues>({
-    resolver: zodResolver(assignRolesSchema),
+    resolver: assignRolesResolver,
     defaultValues: { roles: ["CLIENT"] },
     mode: "onChange"
   });
@@ -122,7 +138,20 @@ const UsersPage = (): JSX.Element => {
     return list.find((u) => u.id === selectedUserId) ?? null;
   }, [selectedUserId, usersQuery.data]);
 
-  const canManage = role === "SUPER_ADMIN";
+  useEffect(() => {
+    if (!selectedUserId || !usersQuery.data?.data) {
+      return;
+    }
+    const u = usersQuery.data.data.find((x) => x.id === selectedUserId);
+    if (!u) {
+      return;
+    }
+    const allowed = new Set(assignableRoles);
+    const next = u.roles.filter((r) => allowed.has(r as (typeof assignableRoles)[number]));
+    form.reset({ roles: (next.length > 0 ? next : ["CLIENT"]) as AssignRolesValues["roles"] });
+  }, [assignableRoles, form.reset, selectedUserId, usersQuery.data?.data]);
+
+  const canManage = role === "SUPER_ADMIN" || role === "ADMIN";
   const canDeleteUsers = role === "SUPER_ADMIN" || role === "ADMIN";
   const selectedIsClient = selectedUser?.roles.includes("CLIENT") ?? false;
 
@@ -132,7 +161,9 @@ const UsersPage = (): JSX.Element => {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-xl font-semibold">Usuarios</h1>
-            <p className="mt-1 text-sm text-textSecondary">Gestión global (SUPER_ADMIN).</p>
+            <p className="mt-1 text-sm text-textSecondary">
+              SUPER_ADMIN: control total. ADMIN: asigna roles operativos (no puede otorgar SUPER_ADMIN).
+            </p>
           </div>
           <Link href="/overview" className="text-primary hover:underline">
             Volver al inicio
@@ -208,7 +239,7 @@ const UsersPage = (): JSX.Element => {
                                   {u.name}
                                 </button>
                               </td>
-                              <td className="px-3 py-3 text-sm text-textSecondary">{u.email}</td>
+                              <td className="px-3 py-3 text-sm text-textSecondary">{u.email ?? "—"}</td>
                               <td className="px-3 py-3 text-sm text-textSecondary">{u.roles.join(", ")}</td>
                               <td className="px-3 py-3 text-right">{activeBadge}</td>
                               <td className="px-3 py-3 text-right">
@@ -270,7 +301,7 @@ const UsersPage = (): JSX.Element => {
                       )}
 
                       <div className="space-y-2">
-                        {allRoles.map((r) => {
+                        {assignableRoles.map((r) => {
                           const checked = form.watch("roles").includes(r);
                           return (
                             <label key={r} className="flex items-center justify-between gap-3 text-sm">

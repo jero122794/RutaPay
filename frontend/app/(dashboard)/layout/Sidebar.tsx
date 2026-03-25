@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api, { setAccessToken } from "../../../lib/api";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import { NavIcon } from "./nav-icons";
-import { isNavItemActive, navItemsByRole, type NavItem } from "./nav-items";
+import { filterNavByModules, isNavItemActive, navItemsByRole, type NavItem } from "./nav-items";
 
 interface SidebarProps {
   isTabletExpanded: boolean;
@@ -35,7 +35,10 @@ const Sidebar = ({ isTabletExpanded, onCloseTablet }: SidebarProps): JSX.Element
   const clearUser = useAuthStore((state) => state.clearUser);
 
   const role: UserRole = user?.roles[0] ?? "CLIENT";
-  const navItems = useMemo<NavItem[]>(() => navItemsByRole[role], [role]);
+  const navItems = useMemo<NavItem[]>(() => {
+    const base = navItemsByRole[role];
+    return filterNavByModules(base, user?.modules);
+  }, [role, user?.modules]);
 
   const notificationsQuery = useQuery({
     queryKey: ["notifications"],

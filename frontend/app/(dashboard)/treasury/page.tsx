@@ -111,6 +111,34 @@ interface LiquidationDashboardProps {
   data: LiquidationResponse;
 }
 
+/** Simplified day summary for route managers (recaudo, prestado, saldo en caja). */
+const RouteManagerLiquidationSimple = ({ data }: LiquidationDashboardProps): JSX.Element => {
+  return (
+    <div className="mt-4 space-y-3">
+      <p className="text-xs text-textSecondary">
+        Fecha operativa (Bogotá): <span className="font-medium text-textPrimary">{data.asOfDate}</span>
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border border-border bg-bg p-4">
+          <p className="text-xs uppercase tracking-wider text-textSecondary">Recaudado hoy</p>
+          <p className="mt-2 text-lg font-semibold text-textPrimary">{formatCOP(data.totalsOnDate.collected)}</p>
+          <p className="mt-1 text-xs text-textSecondary">Pagos registrados en el día</p>
+        </div>
+        <div className="rounded-xl border border-border bg-bg p-4">
+          <p className="text-xs uppercase tracking-wider text-textSecondary">Prestado hoy</p>
+          <p className="mt-2 text-lg font-semibold text-textPrimary">{formatCOP(data.totalsOnDate.lentPrincipal)}</p>
+          <p className="mt-1 text-xs text-textSecondary">Capital de préstamos creados hoy</p>
+        </div>
+        <div className="rounded-xl border border-border bg-bg p-4">
+          <p className="text-xs uppercase tracking-wider text-textSecondary">Quedó en caja (saldo ruta)</p>
+          <p className="mt-2 text-lg font-semibold text-primary">{formatCOP(data.currentBalance)}</p>
+          <p className="mt-1 text-xs text-textSecondary">Saldo actual en tu ruta</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const LiquidationDashboard = ({ data }: LiquidationDashboardProps): JSX.Element => {
   const totalMora = useMemo(
     () => data.byRoute.reduce((s, r) => s + r.overdueInstallmentsOutstanding, 0),
@@ -694,9 +722,9 @@ const TreasuryPage = (): JSX.Element => {
 
       {isRouteManagerView && user?.id ? (
         <div className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="text-lg font-semibold">Liquidación operativa</h2>
+          <h2 className="text-lg font-semibold">Liquidación del día</h2>
           <p className="mt-1 text-sm text-textSecondary">
-            Seguimiento por ruta y por tipo de cuota. El crédito a ruta lo gestiona administración.
+            Resumen simple: lo recaudado, lo prestado y el saldo en caja. El crédito a la ruta lo gestiona administración.
           </p>
           {liquidationDetailQuery.isLoading ? (
             <p className="mt-4 text-sm text-textSecondary">Cargando liquidación...</p>
@@ -705,14 +733,13 @@ const TreasuryPage = (): JSX.Element => {
             <p className="mt-4 text-sm text-danger">{getErrorMessage(liquidationDetailQuery.error)}</p>
           ) : null}
           {liquidationDetailQuery.data?.data ? (
-            <LiquidationDashboard data={liquidationDetailQuery.data.data} />
+            <RouteManagerLiquidationSimple data={liquidationDetailQuery.data.data} />
           ) : null}
 
           <div className="mt-8 border-t border-border pt-6">
             <h3 className="text-base font-semibold text-textPrimary">Cierre del día para administración</h3>
             <p className="mt-1 text-sm text-textSecondary">
-              Los importes se calculan con la fecha de arriba. Envía a revisión cuando cuadre con tu operación; un administrador aprobará o
-              rechazará.
+              Usa los mismos importes del resumen de arriba. Envía a revisión cuando cuadre; un administrador aprobará o rechazará.
             </p>
             {myLiquidationReviewQuery.isLoading ? (
               <p className="mt-4 text-sm text-textSecondary">Cargando resumen...</p>
@@ -727,26 +754,6 @@ const TreasuryPage = (): JSX.Element => {
                   <span className="font-medium text-textPrimary">
                     {liquidationReviewStatusLabel(myLiquidationReviewQuery.data.data.reviewStatus)}
                   </span>
-                </div>
-                <div className="flex flex-wrap justify-between gap-2">
-                  <span className="text-textSecondary">Recaudo del día</span>
-                  <span>{formatCOP(myLiquidationReviewQuery.data.data.collectedOnDate)}</span>
-                </div>
-                <div className="flex flex-wrap justify-between gap-2">
-                  <span className="text-textSecondary">Prestado del día</span>
-                  <span>{formatCOP(myLiquidationReviewQuery.data.data.lentPrincipalOnDate)}</span>
-                </div>
-                <div className="flex flex-wrap justify-between gap-2">
-                  <span className="text-textSecondary">Neto del día</span>
-                  <span>{formatCOP(myLiquidationReviewQuery.data.data.netCashflowDay)}</span>
-                </div>
-                <div className="flex flex-wrap justify-between gap-2">
-                  <span className="text-textSecondary">Caja en rutas</span>
-                  <span>{formatCOP(myLiquidationReviewQuery.data.data.cashInRoutes)}</span>
-                </div>
-                <div className="flex flex-wrap justify-between gap-2">
-                  <span className="text-textSecondary">Disponible para prestar</span>
-                  <span className="text-primary">{formatCOP(myLiquidationReviewQuery.data.data.availableToLend)}</span>
                 </div>
                 {myLiquidationReviewQuery.data.data.reviewNote ? (
                   <p className="text-xs text-textSecondary">

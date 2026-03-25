@@ -4,7 +4,7 @@ import type { Loan } from "@prisma/client";
 import { prisma } from "./prisma.js";
 
 export type LoanWithRouteManager = Loan & {
-  route: { managerId: string };
+  route: { managerId: string; businessId: string | null };
 };
 
 const httpError = (statusCode: number, name: string, message: string): FastifyError => {
@@ -15,29 +15,35 @@ const httpError = (statusCode: number, name: string, message: string): FastifyEr
 };
 
 /**
- * Enforces loan access: ADMIN/SUPER_ADMIN (all), ROUTE_MANAGER (only loans on routes they manage),
- * CLIENT (only own loans). Uses route.managerId as source of truth for route scope (IDOR / A01).
+ * Enforces loan access: SUPER_ADMIN (all), ADMIN (same business as route), ROUTE_MANAGER (only loans on routes they manage),
+ * CLIENT (only own loans).
  */
 export const assertLoanAccessForActor = async (
   loanId: string,
   actorId: string,
-  actorRoles: string[]
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<LoanWithRouteManager> => {
   const loan = await prisma.loan.findUnique({
     where: { id: loanId },
-    include: { route: { select: { managerId: true } } }
+    include: { route: { select: { managerId: true, businessId: true } } }
   });
 
   if (!loan) {
     throw httpError(404, "Not Found", "Loan not found.");
   }
 
-  const isPrivileged = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
+  const isSuper = actorRoles.includes("SUPER_ADMIN");
+  const isAdmin = actorRoles.includes("ADMIN") && !isSuper;
   const managesRoute =
     actorRoles.includes("ROUTE_MANAGER") && loan.route.managerId === actorId;
   const isBorrower = actorRoles.includes("CLIENT") && loan.clientId === actorId;
 
-  if (!isPrivileged && !managesRoute && !isBorrower) {
+  if (isAdmin) {
+    if (!actorBusinessId || loan.route.businessId !== actorBusinessId) {
+      throw httpError(403, "Forbidden", "No tienes acceso a este recurso.");
+    }
+  } else if (!isSuper && !managesRoute && !isBorrower) {
     throw httpError(403, "Forbidden", "No tienes acceso a este recurso.");
   }
 

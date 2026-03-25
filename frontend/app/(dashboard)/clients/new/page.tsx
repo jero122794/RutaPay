@@ -35,11 +35,20 @@ const getErrorMessage = (error: unknown): string => {
 
 const createClientSchema = z.object({
   name: z.string().min(2).max(100),
-  email: z.string().email(),
-  phone: z.string().min(7).max(20).optional().or(z.literal("").transform(() => undefined)),
-  address: z.string().min(5, "Dirección requerida"),
-  description: z.string().min(3, "Descripción requerida"),
+  phone: z.string().min(7).max(20),
   documentId: z.string().min(5, "Documento requerido"),
+  email: z.preprocess(
+    (v) => (v === "" || v === undefined || v === null ? undefined : v),
+    z.string().email("Correo inválido").optional()
+  ),
+  address: z.preprocess(
+    (v) => (v === "" || v === undefined || v === null ? undefined : v),
+    z.string().max(160).optional()
+  ),
+  description: z.preprocess(
+    (v) => (v === "" || v === undefined || v === null ? undefined : v),
+    z.string().max(300).optional()
+  ),
   password: z
     .string()
     .min(8)
@@ -81,11 +90,11 @@ const ClientsNewPage = (): JSX.Element => {
     resolver: zodResolver(createClientSchema),
     defaultValues: {
       name: "",
-      email: "",
       phone: "",
+      documentId: "",
+      email: "",
       address: "",
       description: "",
-      documentId: "",
       password: "",
       routeId: isAdminView ? "" : defaultRouteIdForManager
     },
@@ -116,20 +125,20 @@ const ClientsNewPage = (): JSX.Element => {
     try {
       const response = await api.post("/clients", {
         name: values.name,
-        email: values.email,
-        phone: values.phone ? values.phone : undefined,
-        address: values.address,
-        description: values.description,
+        phone: values.phone,
         documentId: values.documentId,
         password: values.password,
-        routeId
+        routeId,
+        ...(values.email?.trim() ? { email: values.email.trim() } : {}),
+        ...(values.address?.trim() ? { address: values.address.trim() } : {}),
+        ...(values.description?.trim() ? { description: values.description.trim() } : {})
       });
 
       const created = response.data.data as { id: string };
       router.push(`/clients/${created.id}`);
     } catch (error) {
       const message = getErrorMessage(error);
-      form.setError("email", { type: "manual", message });
+      form.setError("documentId", { type: "manual", message });
     }
   };
 
@@ -185,20 +194,8 @@ const ClientsNewPage = (): JSX.Element => {
             </div>
 
             <div>
-              <label htmlFor="email" className="mb-1 block text-sm text-textSecondary">
-                Email
-              </label>
-              <input
-                id="email"
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-                {...form.register("email")}
-              />
-              <p className="mt-1 text-xs text-danger">{form.formState.errors.email?.message}</p>
-            </div>
-
-            <div>
               <label htmlFor="phone" className="mb-1 block text-sm text-textSecondary">
-                Teléfono (opcional)
+                Teléfono
               </label>
               <input
                 id="phone"
@@ -221,6 +218,19 @@ const ClientsNewPage = (): JSX.Element => {
             </div>
 
             <div>
+              <label htmlFor="email" className="mb-1 block text-sm text-textSecondary">
+                Correo (opcional)
+              </label>
+              <input
+                id="email"
+                type="email"
+                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+                {...form.register("email")}
+              />
+              <p className="mt-1 text-xs text-danger">{form.formState.errors.email?.message}</p>
+            </div>
+
+            <div>
               <label htmlFor="password" className="mb-1 block text-sm text-textSecondary">
                 Contraseña
               </label>
@@ -235,7 +245,7 @@ const ClientsNewPage = (): JSX.Element => {
 
             <div>
               <label htmlFor="address" className="mb-1 block text-sm text-textSecondary">
-                Dirección
+                Dirección (opcional)
               </label>
               <input
                 id="address"
@@ -247,7 +257,7 @@ const ClientsNewPage = (): JSX.Element => {
 
             <div>
               <label htmlFor="description" className="mb-1 block text-sm text-textSecondary">
-                Descripción
+                Descripción (opcional)
               </label>
               <textarea
                 id="description"

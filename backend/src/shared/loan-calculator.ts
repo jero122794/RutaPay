@@ -25,10 +25,41 @@ export interface LoanResult {
   schedule: ScheduleItem[];
 }
 
+/**
+ * Monthly interest factor: when the payment plan spans more than ~one month,
+ * apply the (monthly) interest rate once per elapsed month period.
+ * - MONTHLY: one period per installment (each installment is one month).
+ * - BIWEEKLY: two installments ≈ one month → ceil(count / 2) periods.
+ * - WEEKLY: if more than 4 weeks, ceil(weeks / ~30 days); else one period.
+ * - DAILY: if more than 30 days, ceil(days / 30); else one period.
+ */
+export const monthlyInterestPeriodCount = (frequency: LoanFrequency, installmentCount: number): number => {
+  const n = Math.max(1, Math.floor(installmentCount));
+  switch (frequency) {
+    case "MONTHLY":
+      return n;
+    case "BIWEEKLY":
+      return Math.max(1, Math.ceil(n / 2));
+    case "WEEKLY":
+      if (n > 4) {
+        return Math.max(1, Math.ceil((n * 7) / 30));
+      }
+      return 1;
+    case "DAILY":
+      if (n > 30) {
+        return Math.max(1, Math.ceil(n / 30));
+      }
+      return 1;
+    default:
+      return 1;
+  }
+};
+
 export const calculateLoan = (input: LoanInput): LoanResult => {
   const { principal, interestRate, installmentCount, frequency, startDate, excludeWeekends = false } = input;
 
-  const totalInterest = Math.round(principal * interestRate);
+  const interestPeriods = monthlyInterestPeriodCount(frequency, installmentCount);
+  const totalInterest = Math.round(principal * interestRate * interestPeriods);
   const totalAmount = principal + totalInterest;
   const installmentAmount = Math.round(totalAmount / installmentCount);
   const lastInstallment = totalAmount - installmentAmount * (installmentCount - 1);

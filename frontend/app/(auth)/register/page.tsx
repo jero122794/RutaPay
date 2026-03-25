@@ -8,7 +8,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import api, { setAccessToken } from "../../../lib/api";
-import { useAuthStore, type UserRole } from "../../../store/authStore";
+import { useAuthStore, type AppModuleKey, type UserRole } from "../../../store/authStore";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 
@@ -16,8 +16,8 @@ const registerSchema = z.object({
   name: z.string().min(2, "Nombre requerido"),
   email: z.union([z.string().email("Correo inválido"), z.literal("")]).optional(),
   phone: z.string().min(7, "Teléfono inválido"),
-  address: z.string().min(5, "Dirección requerida"),
-  description: z.string().min(3, "Descripción requerida"),
+  address: z.union([z.string().max(160), z.literal("")]).optional(),
+  description: z.union([z.string().max(300), z.literal("")]).optional(),
   documentId: z.string().min(5, "Documento requerido"),
   routeId: z.preprocess(
     (value) => (value === "" || value === null || value === undefined ? undefined : value),
@@ -27,6 +27,7 @@ const registerSchema = z.object({
     .string()
     .min(8, "Mínimo 8 caracteres")
     .regex(/[A-Z]/, "Debe incluir una mayúscula")
+    .regex(/[a-z]/, "Debe incluir una minúscula")
     .regex(/[0-9]/, "Debe incluir un número")
     .regex(/[^A-Za-z0-9]/, "Debe incluir un símbolo")
 });
@@ -41,6 +42,8 @@ interface RegisterResponse {
       name: string;
       email: string;
       roles: string[];
+      businessId: string | null;
+      modules: string[];
     };
   };
   message: string;
@@ -174,8 +177,10 @@ const RegisterContent = (): JSX.Element => {
       setUser({
         id: response.data.data.user.id,
         name: response.data.data.user.name,
-        email: response.data.data.user.email,
-        roles: response.data.data.user.roles as UserRole[]
+        email: response.data.data.user.email ?? "",
+        roles: response.data.data.user.roles as UserRole[],
+        businessId: response.data.data.user.businessId ?? null,
+        modules: (response.data.data.user.modules ?? []) as AppModuleKey[]
       });
       setSuccess(`Cuenta creada para ${response.data.data.user.name}.`);
       form.reset();
@@ -246,7 +251,7 @@ const RegisterContent = (): JSX.Element => {
 
           <div>
             <label htmlFor="address" className="mb-1 block text-sm text-textSecondary">
-              Dirección
+              Dirección (opcional)
             </label>
             <input
               id="address"
@@ -259,7 +264,7 @@ const RegisterContent = (): JSX.Element => {
 
           <div>
             <label htmlFor="description" className="mb-1 block text-sm text-textSecondary">
-              Descripción
+              Descripción (opcional)
             </label>
             <textarea
               id="description"

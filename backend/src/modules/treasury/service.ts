@@ -8,6 +8,23 @@ import type { CreditRouteInput } from "./schema.js";
 
 const decimalToNumber = (value: Prisma.Decimal): number => Number(value.toString());
 
+export const assertManagerInBusinessScope = async (
+  managerId: string,
+  actorRoles: string[],
+  actorBusinessId: string | null
+): Promise<void> => {
+  if (actorRoles.includes("SUPER_ADMIN")) {
+    return;
+  }
+  const manager = await prisma.user.findUnique({
+    where: { id: managerId },
+    select: { businessId: true }
+  });
+  if (!actorBusinessId || !manager || manager.businessId !== actorBusinessId) {
+    throw new Error("You do not have access to this manager.");
+  }
+};
+
 const FREQUENCIES: Frequency[] = ["DAILY", "WEEKLY", "BIWEEKLY", "MONTHLY"];
 
 interface RouteBalanceView {
@@ -83,7 +100,8 @@ const frequencyLabel = (f: Frequency): string => {
 const ensureRouteAccess = async (
   routeId: string,
   actorId: string,
-  actorRoles: string[]
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<{ id: string; name: string; managerId: string; balance: Prisma.Decimal }> => {
   const route = await prisma.route.findUnique({
     where: { id: routeId }
@@ -93,10 +111,15 @@ const ensureRouteAccess = async (
     throw new Error("Route not found.");
   }
 
-  const isAdmin = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
+  const isSuper = actorRoles.includes("SUPER_ADMIN");
+  const isAdmin = actorRoles.includes("ADMIN") && !isSuper;
   const isOwnerManager = actorRoles.includes("ROUTE_MANAGER") && route.managerId === actorId;
 
-  if (!isAdmin && !isOwnerManager) {
+  if (isAdmin) {
+    if (!actorBusinessId || route.businessId !== actorBusinessId) {
+      throw new Error("You do not have access to this route.");
+    }
+  } else if (!isSuper && !isOwnerManager) {
     throw new Error("You do not have access to this route.");
   }
 
@@ -106,9 +129,10 @@ const ensureRouteAccess = async (
 export const getRouteBalance = async (
   routeId: string,
   actorId: string,
-  actorRoles: string[]
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<RouteBalanceView> => {
-  const route = await ensureRouteAccess(routeId, actorId, actorRoles);
+  const route = await ensureRouteAccess(routeId, actorId, actorRoles, actorBusinessId);
 
   const [creditsAgg, debitsAgg] = await Promise.all([
     prisma.managerBalanceLog.aggregate({
@@ -139,8 +163,11 @@ export const getRouteBalance = async (
 
 export const creditRouteBalance = async (
   input: CreditRouteInput,
-  createdById: string
+  createdById: string,
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<CreditResult> => {
+  await ensureRouteAccess(input.routeId, createdById, actorRoles, actorBusinessId);
   const reference = sanitizePlainText(input.reference);
   const updated = await prisma.$transaction(async (tx) => {
     const route = await tx.route.update({
@@ -504,11 +531,18 @@ export const buildLiquidationReviewRow = async (
 export const listLiquidationReviewsForAdmin = async (
   dateYmd: string,
   page: number,
-  limit: number
+  limit: number,
+  actorBusinessId: string | null,
+  isSuperAdmin: boolean
 ): Promise<{ data: LiquidationReviewRowView[]; total: number; page: number; limit: number }> => {
   const routeRows = await prisma.route.findMany({
     select: { managerId: true },
-    distinct: ["managerId"]
+    distinct: ["managerId"],
+    where: isSuperAdmin
+      ? {}
+      : actorBusinessId
+        ? { businessId: actorBusinessId }
+        : { id: { in: [] } }
   });
   const managerIds = routeRows.map((r) => r.managerId);
   const managers = await prisma.user.findMany({
@@ -605,8 +639,12 @@ export const approveLiquidationReview = async (
   reviewerId: string,
   managerId: string,
   dateYmd: string,
-  reviewNote?: string
+  reviewNote: string | undefined,
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<LiquidationReviewRowView> => {
+  await assertManagerInBusinessScope(managerId, actorRoles, actorBusinessId);
+
   const existing = await prisma.liquidationReview.findUnique({
     where: {
       managerId_businessDate: {
@@ -642,8 +680,12 @@ export const rejectLiquidationReview = async (
   reviewerId: string,
   managerId: string,
   dateYmd: string,
-  reason: string
+  reason: string,
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<LiquidationReviewRowView> => {
+  await assertManagerInBusinessScope(managerId, actorRoles, actorBusinessId);
+
   const existing = await prisma.liquidationReview.findUnique({
     where: {
       managerId_businessDate: {

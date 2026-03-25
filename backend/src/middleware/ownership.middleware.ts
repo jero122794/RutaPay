@@ -44,7 +44,7 @@ export const verifyLoanOwnershipParam =
     }
 
     try {
-      await assertLoanAccessForActor(loanId, auth.id, auth.roles);
+      await assertLoanAccessForActor(loanId, auth.id, auth.roles, auth.businessId ?? null);
     } catch (error) {
       const err = error as FastifyError;
       if (err.statusCode && err.statusCode >= 400 && err.statusCode < 500) {
@@ -79,7 +79,7 @@ export const verifyLoanOwnershipFromPaymentBody = async (
   }
 
   try {
-    await assertLoanAccessForActor(parsed.data.loanId, auth.id, auth.roles);
+    await assertLoanAccessForActor(parsed.data.loanId, auth.id, auth.roles, auth.businessId ?? null);
   } catch (error) {
     const err = error as FastifyError;
     if (err.statusCode && err.statusCode >= 400 && err.statusCode < 500) {

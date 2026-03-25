@@ -3,12 +3,13 @@ import bcrypt from "bcryptjs";
 import type { PaginationQuery } from "../../shared/pagination.schema.js";
 import { slicePage } from "../../shared/pagination.schema.js";
 import { prisma } from "../../shared/prisma.js";
+import { sanitizePlainText } from "../../shared/sanitize.js";
 import type { CreateClientInput, UpdateClientInput } from "./schema.js";
 
 interface ClientView {
   id: string;
   name: string;
-  email: string;
+  email: string | null;
   phone: string | null;
   address: string | null;
   description: string | null;
@@ -68,19 +69,29 @@ const toClientViewById = async (clientId: string): Promise<ClientView> => {
 const ensureRouteManagerAccess = async (
   routeId: string,
   actorId: string,
-  actorRoles: string[]
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<void> => {
-  const isPrivileged = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
-  if (isPrivileged) {
-    return;
-  }
-
   const route = await prisma.route.findUnique({
     where: { id: routeId }
   });
 
   if (!route) {
     throw new Error("Route not found.");
+  }
+
+  const isSuper = actorRoles.includes("SUPER_ADMIN");
+  const isAdmin = actorRoles.includes("ADMIN") && !isSuper;
+
+  if (isSuper) {
+    return;
+  }
+
+  if (isAdmin) {
+    if (!actorBusinessId || route.businessId !== actorBusinessId) {
+      throw new Error("You do not have access to this route.");
+    }
+    return;
   }
 
   const isOwnerManager = actorRoles.includes("ROUTE_MANAGER") && route.managerId === actorId;
@@ -92,17 +103,23 @@ const ensureRouteManagerAccess = async (
 export const listClients = async (
   actorId: string,
   actorRoles: string[],
+  actorBusinessId: string | null,
   pagination: PaginationQuery | null
 ): Promise<{ data: ClientView[]; total: number; page: number; limit: number }> => {
-  const isPrivileged = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
+  const isSuper = actorRoles.includes("SUPER_ADMIN");
+  const isAdmin = actorRoles.includes("ADMIN") && !isSuper;
 
-  const routeFilter = isPrivileged
+  const routeFilter = isSuper
     ? {}
-    : {
-        route: {
-          managerId: actorId
-        }
-      };
+    : isAdmin
+      ? actorBusinessId
+        ? { route: { businessId: actorBusinessId } }
+        : { route: { id: { in: [] } } }
+      : {
+          route: {
+            managerId: actorId
+          }
+        };
 
   const routeClients = await prisma.routeClient.findMany({
     where: routeFilter,
@@ -177,15 +194,24 @@ export const listClients = async (
 export const createClient = async (
   input: CreateClientInput,
   actorId: string,
-  actorRoles: string[]
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<ClientView> => {
-  await ensureRouteManagerAccess(input.routeId, actorId, actorRoles);
+  await ensureRouteManagerAccess(input.routeId, actorId, actorRoles, actorBusinessId);
 
-  const existing = await prisma.user.findUnique({
-    where: { email: input.email }
+  const route = await prisma.route.findUnique({
+    where: { id: input.routeId }
   });
+  if (!route) {
+    throw new Error("Route not found.");
+  }
 
-  if (existing) {
+  const normalizedEmail = input.email?.trim()
+    ? input.email.trim().toLowerCase()
+    : `${input.documentId}@cliente.local`;
+
+  const existingByEmail = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  if (existingByEmail) {
     throw new Error("Email already exists.");
   }
   const existingDocument = await prisma.user.findFirst({
@@ -203,17 +229,27 @@ export const createClient = async (
     throw new Error("CLIENT role does not exist.");
   }
 
+  let address: string | null = null;
+  if (input.address !== undefined && input.address.trim() !== "") {
+    address = sanitizePlainText(input.address) ?? null;
+  }
+  let description: string | null = null;
+  if (input.description !== undefined && input.description.trim() !== "") {
+    description = sanitizePlainText(input.description) ?? null;
+  }
+
   const passwordHash = await bcrypt.hash(input.password, 12);
   const created = await prisma.$transaction(async (tx) => {
     const user = await tx.user.create({
       data: {
         name: input.name,
-        email: input.email,
+        email: normalizedEmail,
         phone: input.phone,
-        address: input.address,
-        description: input.description,
+        address,
+        description,
         documentId: input.documentId,
-        passwordHash
+        passwordHash,
+        businessId: route.businessId ?? null
       }
     });
 
@@ -240,13 +276,23 @@ export const createClient = async (
 export const getClientById = async (
   id: string,
   actorId: string,
-  actorRoles: string[]
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<ClientView> => {
   const client = await toClientViewById(id);
-  const isPrivileged = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
+  const isSuper = actorRoles.includes("SUPER_ADMIN");
+  const isAdmin = actorRoles.includes("ADMIN") && !isSuper;
   const isOwnerManager = actorRoles.includes("ROUTE_MANAGER") && client.managerId === actorId;
 
-  if (!isPrivileged && !isOwnerManager) {
+  if (isAdmin) {
+    const route = await prisma.route.findUnique({
+      where: { id: client.routeId },
+      select: { businessId: true }
+    });
+    if (!actorBusinessId || !route || route.businessId !== actorBusinessId) {
+      throw new Error("You do not have access to this client.");
+    }
+  } else if (!isSuper && !isOwnerManager) {
     throw new Error("You do not have access to this client.");
   }
 
@@ -257,9 +303,10 @@ export const updateClient = async (
   id: string,
   input: UpdateClientInput,
   actorId: string,
-  actorRoles: string[]
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<ClientView> => {
-  const current = await getClientById(id, actorId, actorRoles);
+  const current = await getClientById(id, actorId, actorRoles, actorBusinessId);
 
   if (input.email) {
     const existingEmailOwner = await prisma.user.findFirst({
@@ -290,13 +337,25 @@ export const updateClient = async (
   await prisma.user.update({
     where: { id: current.id },
     data: {
-      name: input.name,
-      email: input.email,
-      phone: input.phone,
-      address: input.address,
-      description: input.description,
-      documentId: input.documentId,
-      isActive: input.isActive
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.email !== undefined ? { email: input.email } : {}),
+      ...(input.phone !== undefined ? { phone: input.phone } : {}),
+      ...(input.address !== undefined
+        ? {
+            address:
+              input.address.trim() === "" ? null : sanitizePlainText(input.address) ?? null
+          }
+        : {}),
+      ...(input.description !== undefined
+        ? {
+            description:
+              input.description.trim() === ""
+                ? null
+                : sanitizePlainText(input.description) ?? null
+          }
+        : {}),
+      ...(input.documentId !== undefined ? { documentId: input.documentId } : {}),
+      ...(input.isActive !== undefined ? { isActive: input.isActive } : {})
     }
   });
 

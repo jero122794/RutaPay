@@ -25,9 +25,32 @@ export interface LoanResult {
   schedule: ScheduleItem[];
 }
 
+export const monthlyInterestPeriodCount = (frequency: LoanFrequency, installmentCount: number): number => {
+  const n = Math.max(1, Math.floor(installmentCount));
+  switch (frequency) {
+    case "MONTHLY":
+      return n;
+    case "BIWEEKLY":
+      return Math.max(1, Math.ceil(n / 2));
+    case "WEEKLY":
+      if (n > 4) {
+        return Math.max(1, Math.ceil((n * 7) / 30));
+      }
+      return 1;
+    case "DAILY":
+      if (n > 30) {
+        return Math.max(1, Math.ceil(n / 30));
+      }
+      return 1;
+    default:
+      return 1;
+  }
+};
+
 export const calculateLoan = (input: LoanInput): LoanResult => {
   const { principal, interestRate, installmentCount, frequency, startDate, excludeWeekends = false } = input;
-  const totalInterest = Math.round(principal * interestRate);
+  const interestPeriods = monthlyInterestPeriodCount(frequency, installmentCount);
+  const totalInterest = Math.round(principal * interestRate * interestPeriods);
   const totalAmount = principal + totalInterest;
   const installmentAmount = Math.round(totalAmount / installmentCount);
   const lastInstallment = totalAmount - installmentAmount * (installmentCount - 1);

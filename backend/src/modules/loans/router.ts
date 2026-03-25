@@ -1,6 +1,7 @@
 // backend/src/modules/loans/router.ts
 import type { FastifyInstance } from "fastify";
 import { authGuard } from "../../middleware/auth.middleware.js";
+import { moduleGuard } from "../../middleware/module.middleware.js";
 import { verifyLoanOwnershipParam } from "../../middleware/ownership.middleware.js";
 import { roleGuard } from "../../middleware/role.middleware.js";
 import {
@@ -9,18 +10,31 @@ import {
   getLoanByIdController,
   getLoanScheduleController,
   listLoansController,
-  updateLoanStatusController
+  updateLoanStatusController,
+  updateLoanTermsController
 } from "./controller.js";
 
 export const loansRouter = async (app: FastifyInstance): Promise<void> => {
   app.get(
     "/",
-    { preHandler: [authGuard, roleGuard(["ADMIN", "SUPER_ADMIN", "ROUTE_MANAGER", "CLIENT"])] },
+    {
+      preHandler: [
+        authGuard,
+        roleGuard(["ADMIN", "SUPER_ADMIN", "ROUTE_MANAGER", "CLIENT"]),
+        moduleGuard("LOANS")
+      ]
+    },
     listLoansController
   );
   app.post(
     "/",
-    { preHandler: [authGuard, roleGuard(["ROUTE_MANAGER", "ADMIN", "SUPER_ADMIN"])] },
+    {
+      preHandler: [
+        authGuard,
+        roleGuard(["ROUTE_MANAGER", "ADMIN", "SUPER_ADMIN"]),
+        moduleGuard("LOANS")
+      ]
+    },
     createLoanController
   );
   app.get(
@@ -29,6 +43,7 @@ export const loansRouter = async (app: FastifyInstance): Promise<void> => {
       preHandler: [
         authGuard,
         roleGuard(["SUPER_ADMIN", "ADMIN", "ROUTE_MANAGER", "CLIENT"]),
+        moduleGuard("LOANS"),
         verifyLoanOwnershipParam("id")
       ]
     },
@@ -36,8 +51,22 @@ export const loansRouter = async (app: FastifyInstance): Promise<void> => {
   );
   app.patch(
     "/:id/status",
-    { preHandler: [authGuard, roleGuard(["ADMIN", "SUPER_ADMIN"])] },
+    {
+      preHandler: [authGuard, roleGuard(["ADMIN", "SUPER_ADMIN"]), moduleGuard("LOANS")]
+    },
     updateLoanStatusController
+  );
+  app.patch(
+    "/:id/terms",
+    {
+      preHandler: [
+        authGuard,
+        roleGuard(["ROUTE_MANAGER", "ADMIN", "SUPER_ADMIN"]),
+        moduleGuard("LOANS"),
+        verifyLoanOwnershipParam("id")
+      ]
+    },
+    updateLoanTermsController
   );
   app.get(
     "/:id/schedule",
@@ -45,6 +74,7 @@ export const loansRouter = async (app: FastifyInstance): Promise<void> => {
       preHandler: [
         authGuard,
         roleGuard(["SUPER_ADMIN", "ADMIN", "ROUTE_MANAGER", "CLIENT"]),
+        moduleGuard("LOANS"),
         verifyLoanOwnershipParam("id")
       ]
     },
@@ -52,7 +82,13 @@ export const loansRouter = async (app: FastifyInstance): Promise<void> => {
   );
   app.post(
     "/calculate",
-    { preHandler: [authGuard, roleGuard(["ROUTE_MANAGER", "ADMIN", "SUPER_ADMIN"])] },
+    {
+      preHandler: [
+        authGuard,
+        roleGuard(["ROUTE_MANAGER", "ADMIN", "SUPER_ADMIN"]),
+        moduleGuard("LOANS")
+      ]
+    },
     calculateLoanController
   );
 };
