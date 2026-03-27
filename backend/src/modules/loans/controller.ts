@@ -120,7 +120,8 @@ export const updateLoanTermsController = async (
     resourceId: loan.id,
     newValue: {
       interestRatePercent: input.interestRate,
-      frequency: input.frequency
+      frequency: input.frequency,
+      installmentCount: input.installmentCount
     },
     ip: clientIp(request),
     userAgent: userAgentHeader(request)
@@ -129,4 +130,20 @@ export const updateLoanTermsController = async (
     data: loan,
     message: "Loan terms updated."
   });
+};
+
+export const deleteLoanController = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+  const actor = ensureActor(request);
+  const { id } = loanIdParamsSchema.parse(request.params);
+  await loanService.deleteLoan(id, actor.id, actor.roles, actor.businessId);
+  await writeAuditLog({
+    userId: actor.id,
+    action: "LOAN_DELETE",
+    resourceType: "loan",
+    resourceId: id,
+    newValue: {},
+    ip: clientIp(request),
+    userAgent: userAgentHeader(request)
+  });
+  reply.code(204).send();
 };

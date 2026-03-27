@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import api from "../../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../../store/authStore";
 import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
@@ -69,7 +70,7 @@ const getErrorMessage = (error: unknown): string => {
 const ClientProfilePage = (): JSX.Element => {
   const params = useParams<{ id: string }>();
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const queryClient = useQueryClient();
   const canEditClient = role === "SUPER_ADMIN" || role === "ADMIN" || role === "ROUTE_MANAGER";
 

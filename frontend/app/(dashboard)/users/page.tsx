@@ -10,6 +10,7 @@ import Link from "next/link";
 import TablePagination from "../../../components/ui/TablePagination";
 import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../lib/page-size";
 import api from "../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -51,7 +52,7 @@ type AssignRolesValues = z.infer<typeof assignRolesSchemaSuper>;
 
 const UsersPage = (): JSX.Element => {
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const queryClient = useQueryClient();
 
   const [selectedUserId, setSelectedUserId] = useState<string>("");

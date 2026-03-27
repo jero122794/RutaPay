@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import TablePagination from "../../../components/ui/TablePagination";
 import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../lib/page-size";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import api from "../../../lib/api";
 import axios from "axios";
@@ -38,7 +39,7 @@ const getErrorMessage = (error: unknown): string => {
 
 const ClientsPage = (): JSX.Element => {
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const canCreate = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
 
   const [page, setPage] = useState(1);

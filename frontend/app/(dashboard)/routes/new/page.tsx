@@ -10,6 +10,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import axios from "axios";
 import api from "../../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../../store/authStore";
 
 const createRouteSchema = z.object({
@@ -59,7 +60,7 @@ const RoutesNewPage = (): JSX.Element => {
   const router = useRouter();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
 
   const canCreate = role === "ADMIN" || role === "SUPER_ADMIN";
 

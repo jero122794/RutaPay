@@ -11,6 +11,7 @@ import { useForm } from "react-hook-form";
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import api from "../../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../../store/authStore";
 import { calculateLoan, type LoanFrequency, type LoanInput } from "../../../../lib/loan-calculator";
 import { formatCOP } from "../../../../lib/formatters";
@@ -65,7 +66,7 @@ type CreateLoanFormData = z.infer<typeof createLoanFormSchema>;
 const LoansNewPage = (): JSX.Element => {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
 
   const canCreate = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
   const clientsQuery = useQuery({

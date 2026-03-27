@@ -41,6 +41,9 @@ interface ScheduleItem {
   installmentNumber: number;
   dueDate: string;
   amount: number;
+  latePenalty: number;
+  totalDue: number;
+  pendingAmount: number;
   paidAmount: number;
   status: "PENDING" | "PAID" | "OVERDUE" | "PARTIAL";
   paidAt: string | null;
@@ -499,14 +502,18 @@ const PaymentsPage = (): JSX.Element => {
                     {availableSchedules.map((item) => (
                       <option key={item.installmentNumber} value={item.installmentNumber}>
                         #{item.installmentNumber} • {formatBogotaDateFromString(item.dueDate)} •{" "}
-                        {formatCOP(item.amount - item.paidAmount)}
+                        {formatCOP(item.pendingAmount)}
                       </option>
                     ))}
                   </select>
                   {scheduleForSelection ? (
-                    <p className="text-xs text-textSecondary">
-                      Estado: {scheduleForSelection.status}
-                    </p>
+                    <div className="space-y-1">
+                      <p className="text-xs text-textSecondary">Estado: {scheduleForSelection.status}</p>
+                      <p className="text-xs text-warning">
+                        Mora actual: {formatCOP(scheduleForSelection.latePenalty)} • Total cuota:{" "}
+                        {formatCOP(scheduleForSelection.totalDue)}
+                      </p>
+                    </div>
                   ) : null}
                 </div>
               ) : null}

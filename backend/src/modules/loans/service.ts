@@ -1,6 +1,7 @@
 // backend/src/modules/loans/service.ts
 import type { LoanStatus, Prisma } from "@prisma/client";
 import { calculateLoan } from "../../shared/loan-calculator.js";
+import { computeLatePenaltyCOP, interestSharePerInstallmentCOP } from "../../shared/late-penalty.js";
 import { assertLoanAccessForActor, loanRowWithoutRoute } from "../../shared/loan-ownership.js";
 import type { PaginationQuery } from "../../shared/pagination.schema.js";
 import { prismaPaginationBounds } from "../../shared/pagination.schema.js";
@@ -37,6 +38,9 @@ interface ScheduleView {
   installmentNumber: number;
   dueDate: Date;
   amount: number;
+  latePenalty: number;
+  totalDue: number;
+  pendingAmount: number;
   paidAmount: number;
   status: "PENDING" | "PAID" | "OVERDUE" | "PARTIAL";
   paidAt: Date | null;
@@ -257,6 +261,30 @@ export const updateLoanStatus = async (
   return mapLoan(updated);
 };
 
+export const deleteLoan = async (
+  id: string,
+  actorId: string,
+  actorRoles: string[],
+  actorBusinessId: string | null
+): Promise<void> => {
+  const isAdminOnly = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
+  if (!isAdminOnly) {
+    throw new Error("Only administrators can delete loans.");
+  }
+
+  await assertLoanAccessForActor(id, actorId, actorRoles, actorBusinessId);
+
+  const paymentCount = await prisma.payment.count({ where: { loanId: id } });
+  if (paymentCount > 0) {
+    throw new Error("Cannot delete a loan that has registered payments.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.paymentSchedule.deleteMany({ where: { loanId: id } });
+    await tx.loan.delete({ where: { id } });
+  });
+};
+
 export const updateLoanTerms = async (
   id: string,
   input: UpdateLoanTermsInput,
@@ -264,6 +292,11 @@ export const updateLoanTerms = async (
   actorRoles: string[],
   actorBusinessId: string | null
 ): Promise<LoanView> => {
+  const isAdminOnly = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN");
+  if (!isAdminOnly) {
+    throw new Error("Only administrators can update loan terms.");
+  }
+
   const loan = await assertLoanAccessForActor(id, actorId, actorRoles, actorBusinessId);
   const row = loanRowWithoutRoute(loan);
 
@@ -289,11 +322,12 @@ export const updateLoanTerms = async (
 
   const principal = decimalToNumber(row.principal);
   const interestPercent = input.interestRate;
+  const nextInstallmentCount = input.installmentCount ?? row.installmentCount;
 
   const preview = calculateLoanPreview({
     principal,
     interestRate: interestPercent,
-    installmentCount: row.installmentCount,
+    installmentCount: nextInstallmentCount,
     frequency: input.frequency,
     startDate: row.startDate,
     excludeWeekends: false
@@ -312,6 +346,7 @@ export const updateLoanTerms = async (
       data: {
         interestRate: interestPercent / 100,
         frequency: input.frequency,
+        installmentCount: nextInstallmentCount,
         termDays,
         installmentAmount: preview.installmentAmount,
         totalAmount: preview.totalAmount,
@@ -344,18 +379,47 @@ export const getLoanSchedule = async (
 ): Promise<ScheduleView[]> => {
   await assertLoanAccessForActor(loanId, actorId, actorRoles, actorBusinessId);
 
-  const schedule = await prisma.paymentSchedule.findMany({
-    where: { loanId },
-    orderBy: { installmentNumber: "asc" }
-  });
+  const [schedule, loan] = await Promise.all([
+    prisma.paymentSchedule.findMany({
+      where: { loanId },
+      orderBy: { installmentNumber: "asc" }
+    }),
+    prisma.loan.findUnique({
+      where: { id: loanId },
+      select: { totalInterest: true, installmentCount: true }
+    })
+  ]);
 
-  return schedule.map((item) => ({
-    id: item.id,
-    installmentNumber: item.installmentNumber,
-    dueDate: item.dueDate,
-    amount: decimalToNumber(item.amount),
-    paidAmount: decimalToNumber(item.paidAmount),
-    status: item.status,
-    paidAt: item.paidAt
-  }));
+  if (!loan) {
+    throw new Error("Loan not found.");
+  }
+
+  const interestShareCOP = interestSharePerInstallmentCOP(
+    Math.round(decimalToNumber(loan.totalInterest)),
+    loan.installmentCount
+  );
+  const now = new Date();
+
+  return schedule.map((item) => {
+    const amount = decimalToNumber(item.amount);
+    const paidAmount = decimalToNumber(item.paidAmount);
+    // Mora is calculated dynamically from due date (Bogotá calendar days).
+    // It is applied in payments; exposing it here keeps UI totals aligned.
+    const latePenalty = item.status === "PAID" ? 0 : computeLatePenaltyCOP(item.dueDate, now, interestShareCOP);
+    const totalDue = amount + latePenalty;
+    const pendingAmount = Math.max(totalDue - paidAmount, 0);
+
+    return {
+      id: item.id,
+      installmentNumber: item.installmentNumber,
+      dueDate: item.dueDate,
+      amount,
+      latePenalty,
+      totalDue,
+      pendingAmount,
+      paidAmount,
+      status: item.status,
+      paidAt: item.paidAt
+    };
+  });
 };

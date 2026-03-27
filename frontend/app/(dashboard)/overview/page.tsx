@@ -4,7 +4,7 @@
 import axios from "axios";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import api from "../../../lib/api";
 import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { formatCOP } from "../../../lib/formatters";
@@ -111,6 +111,29 @@ const OverviewPage = (): JSX.Element => {
     enabled: hasAuthHydrated && isAdminView
   });
 
+  type AdminScheduleRow = {
+    installmentNumber: number;
+    dueDate: string | Date;
+    status: "PENDING" | "PAID" | "OVERDUE" | "PARTIAL";
+    paidAmount?: number;
+  };
+
+  const adminActiveLoanIds = useMemo(() => {
+    const list = loansQuery.data?.data ?? [];
+    return list.filter((l) => l.status === "ACTIVE").map((l) => l.id);
+  }, [loansQuery.data]);
+
+  const adminScheduleQueries = useQueries({
+    queries: adminActiveLoanIds.map((id) => ({
+      queryKey: ["loan-schedule-admin-overview", id],
+      queryFn: async (): Promise<{ data: AdminScheduleRow[] }> => {
+        const response = await api.get<{ data: AdminScheduleRow[] }>(`/loans/${id}/schedule`);
+        return response.data;
+      },
+      enabled: hasAuthHydrated && isAdminView && adminActiveLoanIds.length > 0
+    }))
+  });
+
   const todayKey = getBogotaTodayKey();
 
   const routeManagerClientsQuery = useQuery({
@@ -167,6 +190,9 @@ const OverviewPage = (): JSX.Element => {
     }))
   });
 
+  const managerScheduleQueriesPending =
+    activeLoansForManager.length > 0 && scheduleQueries.some((q) => q.isPending);
+
   type RouteManagerClientItem = {
     id: string;
     routeId: string;
@@ -193,6 +219,7 @@ const OverviewPage = (): JSX.Element => {
     installmentNumber: number;
     dueDate: string | Date;
     status: "PENDING" | "PAID" | "OVERDUE" | "PARTIAL";
+    paidAmount?: number;
   };
 
   const routeManagerScheduleItems = scheduleQueries.flatMap(
@@ -214,6 +241,17 @@ const OverviewPage = (): JSX.Element => {
         ? toBogotaDayKey(item.dueDate)
         : toBogotaDayKeyFromDate(item.dueDate);
     return dueKey === todayKey && item.status !== "PAID";
+  }).length;
+
+  const overdueMoraCount = routeManagerScheduleItems.filter((item) => {
+    if (item.status === "PAID") {
+      return false;
+    }
+    const dueKey =
+      typeof item.dueDate === "string"
+        ? toBogotaDayKey(item.dueDate)
+        : toBogotaDayKeyFromDate(item.dueDate);
+    return dueKey < todayKey;
   }).length;
 
   const receivedTodayTotal =
@@ -258,7 +296,8 @@ const OverviewPage = (): JSX.Element => {
     const isLoading =
       routeManagerClientsQuery.isLoading ||
       routeManagerLoansQuery.isLoading ||
-      routeManagerPaymentsQuery.isLoading;
+      routeManagerPaymentsQuery.isLoading ||
+      managerScheduleQueriesPending;
 
     if (isLoading) {
       return (
@@ -305,8 +344,10 @@ const OverviewPage = (): JSX.Element => {
           <StatCard title="Cuotas pendientes" value={String(dueTodayCount)} hint="Programadas para hoy" tone="emerald" />
           <article className="rounded-2xl border border-error/20 bg-error-container/20 p-6">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-error">En mora</p>
-            <p className="mt-3 font-mono text-2xl font-bold leading-tight tracking-tight text-on-surface md:text-3xl">{String(routeManagerScheduleItems.filter((i) => i.status === "OVERDUE").length)}</p>
-            <p className="mt-2 text-xs text-slate-400">Cuotas vencidas críticas</p>
+            <p className="mt-3 font-mono text-2xl font-bold leading-tight tracking-tight text-on-surface md:text-3xl">
+              {String(overdueMoraCount)}
+            </p>
+            <p className="mt-2 text-xs text-slate-400">Cuotas con vencimiento anterior a hoy (no pagadas)</p>
           </article>
         </section>
 
@@ -351,7 +392,13 @@ const OverviewPage = (): JSX.Element => {
     );
   }
 
-  const isLoadingAdmin = routesQuery.isLoading || loansQuery.isLoading || paymentsQuery.isLoading;
+  const adminSchedulesPending =
+    isAdminView &&
+    adminActiveLoanIds.length > 0 &&
+    adminScheduleQueries.some((q) => q.isPending);
+
+  const isLoadingAdmin =
+    routesQuery.isLoading || loansQuery.isLoading || paymentsQuery.isLoading || adminSchedulesPending;
   const isErrorAdmin = routesQuery.isError || loansQuery.isError || paymentsQuery.isError;
   if (isLoadingAdmin) {
     return (
@@ -373,9 +420,20 @@ const OverviewPage = (): JSX.Element => {
   const loans = loansQuery.data.data;
   const payments = paymentsQuery.data.data;
 
+  const adminScheduleItems = adminScheduleQueries.flatMap((q) => q.data?.data ?? []);
+  const adminOverdueMoraCount = adminScheduleItems.filter((item) => {
+    if (item.status === "PAID") {
+      return false;
+    }
+    const dueKey =
+      typeof item.dueDate === "string"
+        ? toBogotaDayKey(item.dueDate)
+        : toBogotaDayKeyFromDate(item.dueDate);
+    return dueKey < todayKey;
+  }).length;
+
   const totalBalance = routes.reduce((acc, item) => acc + item.balance, 0);
   const activeLoans = loans.filter((item) => item.status === "ACTIVE").length;
-  const defaultedLoans = loans.filter((item) => item.status === "DEFAULTED").length;
   const streetMoney = loans.reduce((acc, item) => acc + item.totalAmount, 0);
   const recoveredToday = payments.reduce((acc, item) => acc + item.amount, 0);
 
@@ -406,8 +464,10 @@ const OverviewPage = (): JSX.Element => {
         <StatCard title="Rutas activas" value={String(routes.length)} hint="Total rutas registradas" tone="emerald" />
         <article className="rounded-2xl border border-error/20 bg-error-container/20 p-6">
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-error">En mora</p>
-          <p className="mt-3 font-mono text-2xl font-bold leading-tight tracking-tight text-on-surface md:text-3xl">{String(defaultedLoans)}</p>
-          <p className="mt-2 text-xs text-slate-400">Préstamos con riesgo</p>
+          <p className="mt-3 font-mono text-2xl font-bold leading-tight tracking-tight text-on-surface md:text-3xl">
+            {String(adminOverdueMoraCount)}
+          </p>
+          <p className="mt-2 text-xs text-slate-400">Cuotas vencidas sin pagar (fecha anterior a hoy)</p>
         </article>
       </section>
 

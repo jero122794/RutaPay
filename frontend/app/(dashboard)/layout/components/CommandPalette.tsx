@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import api from "../../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../../store/authStore";
 import { formatCOP } from "../../../../lib/formatters";
 
@@ -102,7 +103,7 @@ const getErrorMessage = (error: unknown): string => {
 export const CommandPalette = ({ open, onClose }: CommandPaletteProps): JSX.Element | null => {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
 
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);

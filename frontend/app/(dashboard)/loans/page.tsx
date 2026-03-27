@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import TablePagination from "../../../components/ui/TablePagination";
 import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../lib/page-size";
 import api from "../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import { formatBogotaDateFromString } from "../../../lib/bogota";
 import { formatCOP } from "../../../lib/formatters";
@@ -65,7 +66,7 @@ const statusBadge = (status: LoanItem["status"]): JSX.Element => {
 
 const LoansPage = (): JSX.Element => {
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const clientDisplayNameForClientRole = role === "CLIENT" ? user?.name ?? "-" : "-";
 
   const [page, setPage] = useState(1);

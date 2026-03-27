@@ -1,6 +1,7 @@
 // backend/src/modules/payments/service.ts
 import type { Prisma } from "@prisma/client";
 import { assertLoanAccessForActor } from "../../shared/loan-ownership.js";
+import { computeLatePenaltyCOP, interestSharePerInstallmentCOP } from "../../shared/late-penalty.js";
 import { sanitizePlainText } from "../../shared/sanitize.js";
 import type { PaginationQuery } from "../../shared/pagination.schema.js";
 import { prismaPaginationBounds } from "../../shared/pagination.schema.js";
@@ -136,13 +137,29 @@ export const createPayment = async (
         throw new Error("Schedule not found for this loan.");
       }
 
-      const schedules = await tx.paymentSchedule.findMany({
-        where: {
-          loanId: input.loanId,
-          installmentNumber: { gte: startSchedule.installmentNumber }
-        },
-        orderBy: { installmentNumber: "asc" }
-      });
+      const [schedules, loanForPenalty] = await Promise.all([
+        tx.paymentSchedule.findMany({
+          where: {
+            loanId: input.loanId,
+            installmentNumber: { gte: startSchedule.installmentNumber }
+          },
+          orderBy: { installmentNumber: "asc" }
+        }),
+        tx.loan.findUnique({
+          where: { id: input.loanId },
+          select: { totalInterest: true, installmentCount: true }
+        })
+      ]);
+
+      if (!loanForPenalty) {
+        throw new Error("Loan not found.");
+      }
+
+      const interestShareCOP = interestSharePerInstallmentCOP(
+        Math.round(decimalToNumber(loanForPenalty.totalInterest)),
+        loanForPenalty.installmentCount
+      );
+      const paymentNow = new Date();
 
       // Distribute payment amount from the selected installment forward.
       // This allows a "total credit" payment to automatically settle future installments.
@@ -173,20 +190,22 @@ export const createPayment = async (
         // tiny binary/representation differences during comparisons.
         const targetAmountNumber = Math.round(decimalToNumber(schedule.amount));
         const currentPaidAmountNumber = Math.round(decimalToNumber(schedule.paidAmount));
-        const outstanding = targetAmountNumber - currentPaidAmountNumber;
+        const latePenalty = computeLatePenaltyCOP(schedule.dueDate, paymentNow, interestShareCOP);
+        const totalDueNumber = targetAmountNumber + latePenalty;
+        const outstanding = totalDueNumber - currentPaidAmountNumber;
 
         if (outstanding <= 0) continue;
 
         const allocation = Math.min(remaining, outstanding);
         const nextPaidAmountNumber = currentPaidAmountNumber + allocation;
-        const isPaid = nextPaidAmountNumber >= targetAmountNumber;
+        const isPaid = nextPaidAmountNumber >= totalDueNumber;
 
         const nextStatus = isPaid ? "PAID" : "PARTIAL";
 
         await tx.paymentSchedule.update({
           where: { id: schedule.id },
           data: {
-            paidAmount: isPaid ? targetAmountNumber : nextPaidAmountNumber,
+            paidAmount: isPaid ? totalDueNumber : nextPaidAmountNumber,
             status: nextStatus,
             paidAt: isPaid ? new Date() : null
           }

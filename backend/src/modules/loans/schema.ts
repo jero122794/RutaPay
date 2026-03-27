@@ -29,7 +29,8 @@ export const updateLoanStatusSchema = z.object({
 
 export const updateLoanTermsSchema = z.object({
   interestRate: z.number().int().positive(),
-  frequency: z.enum(["DAILY", "WEEKLY", "BIWEEKLY", "MONTHLY"])
+  frequency: z.enum(["DAILY", "WEEKLY", "BIWEEKLY", "MONTHLY"]),
+  installmentCount: z.number().int().positive().optional()
 });
 
 export type CreateLoanInput = z.infer<typeof createLoanSchema>;

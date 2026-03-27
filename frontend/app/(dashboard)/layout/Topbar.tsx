@@ -39,7 +39,7 @@ const getPageTitle = (pathname: string): string => {
   return "RutaPay";
 };
 
-const buildBreadcrumb = (pathname: string, role: UserRole): BreadcrumbItem[] => {
+const buildBreadcrumb = (pathname: string): BreadcrumbItem[] => {
   const normalized = pathname.replaceAll("//", "/");
   const segments = normalized.split("/").filter(Boolean);
 
@@ -49,9 +49,9 @@ const buildBreadcrumb = (pathname: string, role: UserRole): BreadcrumbItem[] => 
   // Keep it simple and stable across dynamic id routes.
   const root = segments[0];
   const map: Record<string, string> = {
-    clients: role === "CLIENT" ? "Mis clientes" : "Clientes",
-    loans: role === "CLIENT" ? "Mis préstamos" : "Préstamos",
-    payments: role === "CLIENT" ? "Mis pagos" : "Pagos",
+    clients: "Clientes",
+    loans: "Préstamos",
+    payments: "Pagos",
     routes: "Rutas",
     treasury: "Tesorería",
     notifications: "Alertas",
@@ -98,6 +98,12 @@ export const Topbar = ({ onToggleTabletSidebar }: TopbarProps): JSX.Element => {
 
   const [isOnline, setIsOnline] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [hasMounted, setHasMounted] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
+  const roleForUi: UserRole = hasMounted ? role : "CLIENT";
 
   useEffect(() => {
     setIsOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
@@ -143,7 +149,7 @@ export const Topbar = ({ onToggleTabletSidebar }: TopbarProps): JSX.Element => {
   }, [notificationsQuery.data]);
 
   const pageTitle = useMemo((): string => getPageTitle(pathname), [pathname]);
-  const breadcrumb = useMemo((): BreadcrumbItem[] => buildBreadcrumb(pathname, role), [pathname, role]);
+  const breadcrumb = useMemo((): BreadcrumbItem[] => buildBreadcrumb(pathname), [pathname]);
 
   return (
     <header className="sticky top-0 z-40 relative border-b border-white/5 bg-[#0a0f1e]/70 backdrop-blur-xl">
@@ -229,15 +235,21 @@ export const Topbar = ({ onToggleTabletSidebar }: TopbarProps): JSX.Element => {
 
             <button
               type="button"
-              onClick={() => router.push("/users")}
+              onClick={() => {
+                if (roleForUi === "SUPER_ADMIN" || roleForUi === "ADMIN") {
+                  router.push("/users");
+                }
+              }}
               className="flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2"
             >
-              <span className="text-sm font-semibold text-textPrimary">{
-                role === "SUPER_ADMIN" ? "Super" : role === "ADMIN" ? "Admin" : role === "ROUTE_MANAGER" ? "Encargado" : "Cliente"
-              }</span>
-              <span aria-hidden="true" className="text-textSecondary">
-                ▾
+              <span className="text-sm font-semibold text-textPrimary">
+                {roleForUi === "SUPER_ADMIN" ? "Super" : roleForUi === "ADMIN" ? "Admin" : roleForUi === "ROUTE_MANAGER" ? "Encargado" : "Cliente"}
               </span>
+              {(roleForUi === "SUPER_ADMIN" || roleForUi === "ADMIN") ? (
+                <span aria-hidden="true" className="text-textSecondary">
+                  ▾
+                </span>
+              ) : null}
             </button>
           </div>
         </div>
@@ -280,7 +292,11 @@ export const Topbar = ({ onToggleTabletSidebar }: TopbarProps): JSX.Element => {
 
             <button
               type="button"
-              onClick={() => router.push("/users")}
+              onClick={() => {
+                if (roleForUi === "SUPER_ADMIN" || roleForUi === "ADMIN") {
+                  router.push("/users");
+                }
+              }}
               className="flex items-center gap-3 rounded-xl bg-white/5 px-4 py-2 hover:bg-white/10"
             >
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-surface-2">
@@ -296,18 +312,20 @@ export const Topbar = ({ onToggleTabletSidebar }: TopbarProps): JSX.Element => {
               <div className="hidden min-w-0 lg:block">
                 <p className="truncate text-sm font-semibold text-textPrimary">{user?.name ?? "Usuario"}</p>
                 <p className="truncate text-xs text-textSecondary">
-                  {role === "SUPER_ADMIN"
+                  {roleForUi === "SUPER_ADMIN"
                     ? "Super Admin"
-                    : role === "ADMIN"
+                    : roleForUi === "ADMIN"
                       ? "Admin"
-                      : role === "ROUTE_MANAGER"
+                      : roleForUi === "ROUTE_MANAGER"
                         ? "Encargado de Ruta"
                         : "Cliente"}
                 </p>
               </div>
-              <span aria-hidden="true" className="text-textSecondary">
-                ▾
-              </span>
+              {(roleForUi === "SUPER_ADMIN" || roleForUi === "ADMIN") ? (
+                <span aria-hidden="true" className="text-textSecondary">
+                  ▾
+                </span>
+              ) : null}
             </button>
           </div>
         </div>

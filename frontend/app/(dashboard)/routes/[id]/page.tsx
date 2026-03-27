@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import api from "../../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../../store/authStore";
 import { formatCOP } from "../../../../lib/formatters";
 import { formatBogotaDateFromString } from "../../../../lib/bogota";
@@ -75,7 +76,7 @@ const RouteDetailPage = (): JSX.Element => {
   const params = useParams<{ id: string }>();
   const routeId = params.id;
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const canView = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
 
   const routeQuery = useQuery({

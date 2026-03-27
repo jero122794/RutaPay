@@ -8,6 +8,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 
 interface BusinessRow {
@@ -33,7 +34,7 @@ type CreateForm = z.infer<typeof createSchema>;
 
 const BusinessesPage = (): JSX.Element => {
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const queryClient = useQueryClient();
 
   const listQuery = useQuery({

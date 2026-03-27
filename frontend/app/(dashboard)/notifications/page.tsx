@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import api from "../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import { formatBogotaDateFromString } from "../../../lib/bogota";
 import { formatCOP } from "../../../lib/formatters";
@@ -36,7 +37,7 @@ const getErrorMessage = (error: unknown): string => {
 
 const NotificationsPage = (): JSX.Element => {
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const queryClient = useQueryClient();
 
   const [pushBusy, setPushBusy] = useState(false);

@@ -9,6 +9,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../../store/authStore";
 
 const getErrorMessage = (error: unknown): string => {
@@ -89,7 +90,7 @@ const BusinessDetailPage = (): JSX.Element => {
   const params = useParams();
   const id = typeof params.id === "string" ? params.id : "";
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const queryClient = useQueryClient();
 
   const detailQuery = useQuery({

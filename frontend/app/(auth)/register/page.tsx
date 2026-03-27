@@ -8,6 +8,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import api, { setAccessToken } from "../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { useAuthStore, type AppModuleKey, type UserRole } from "../../../store/authStore";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -74,7 +75,7 @@ const RegisterContent = (): JSX.Element => {
   const user = useAuthStore((state) => state.user);
 
   const routeIdFromQuery = searchParams.get("routeId") ?? "";
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const isRouteManager = role === "ROUTE_MANAGER";
 
   const form = useForm<RegisterFormData>({

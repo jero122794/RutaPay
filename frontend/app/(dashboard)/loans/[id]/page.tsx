@@ -4,8 +4,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import api from "../../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../../lib/effective-roles";
 import { formatCOP } from "../../../../lib/formatters";
 import { formatBogotaDateFromString } from "../../../../lib/bogota";
 import { useEffect, useMemo, useState } from "react";
@@ -48,6 +49,9 @@ interface ScheduleItem {
   installmentNumber: number;
   dueDate: string;
   amount: number;
+  latePenalty: number;
+  totalDue: number;
+  pendingAmount: number;
   paidAmount: number;
   status: "PENDING" | "PAID" | "OVERDUE" | "PARTIAL";
   paidAt: string | null;
@@ -86,7 +90,8 @@ const frequencyLabel = (f: LoanFrequency): string => {
 
 const loanTermsSchema = z.object({
   interestRatePercent: z.coerce.number().int().min(1).max(500),
-  frequency: z.enum(["DAILY", "WEEKLY", "BIWEEKLY", "MONTHLY"])
+  frequency: z.enum(["DAILY", "WEEKLY", "BIWEEKLY", "MONTHLY"]),
+  installmentCount: z.coerce.number().int().min(1).max(240)
 });
 
 type LoanTermsFormValues = z.infer<typeof loanTermsSchema>;
@@ -107,14 +112,14 @@ const scheduleStatusBadge = (status: ScheduleItem["status"]): JSX.Element => {
 
 const LoanDetailPage = (): JSX.Element => {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const loanId = params.id;
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const clientDisplayNameForClientRole = role === "CLIENT" ? user?.name ?? "-" : "-";
   const queryClient = useQueryClient();
 
-  const canEditLoanTerms =
-    role === "ROUTE_MANAGER" || role === "ADMIN" || role === "SUPER_ADMIN";
+  const canEditLoanTerms = role === "ADMIN" || role === "SUPER_ADMIN";
 
   const loanQuery = useQuery({
     queryKey: ["loan-detail", loanId],
@@ -147,7 +152,7 @@ const LoanDetailPage = (): JSX.Element => {
   const totals = useMemo(() => {
     const items = scheduleQuery.data?.data ?? [];
     const paidTotal = items.reduce((acc, item) => acc + item.paidAmount, 0);
-    const total = items.reduce((acc, item) => acc + item.amount, 0);
+    const total = items.reduce((acc, item) => acc + item.totalDue, 0);
     const pendingTotal = Math.max(total - paidTotal, 0);
     return { paidTotal, total, pendingTotal };
   }, [scheduleQuery.data]);
@@ -169,7 +174,7 @@ const LoanDetailPage = (): JSX.Element => {
 
   const termsForm = useForm<LoanTermsFormValues>({
     resolver: zodResolver(loanTermsSchema),
-    defaultValues: { interestRatePercent: 1, frequency: "MONTHLY" },
+    defaultValues: { interestRatePercent: 1, frequency: "MONTHLY", installmentCount: 1 },
     mode: "onChange"
   });
 
@@ -183,12 +188,14 @@ const LoanDetailPage = (): JSX.Element => {
     const pct = Math.round(Number(l.interestRate) * 100);
     termsForm.reset({
       interestRatePercent: pct > 0 ? pct : 1,
-      frequency: l.frequency
+      frequency: l.frequency,
+      installmentCount: l.installmentCount
     });
   }, [
     loanQuery.data?.data?.id,
     loanQuery.data?.data?.interestRate,
     loanQuery.data?.data?.frequency,
+    loanQuery.data?.data?.installmentCount,
     termsForm.reset
   ]);
 
@@ -209,7 +216,8 @@ const LoanDetailPage = (): JSX.Element => {
     mutationFn: async (values: LoanTermsFormValues): Promise<LoanResponse> => {
       const response = await api.patch<LoanResponse>(`/loans/${loanId}/terms`, {
         interestRate: values.interestRatePercent,
-        frequency: values.frequency
+        frequency: values.frequency,
+        installmentCount: values.installmentCount
       });
       return response.data;
     },
@@ -218,6 +226,16 @@ const LoanDetailPage = (): JSX.Element => {
         queryClient.invalidateQueries({ queryKey: ["loan-detail", loanId] }),
         queryClient.invalidateQueries({ queryKey: ["loan-schedule", loanId] })
       ]);
+    }
+  });
+
+  const deleteLoanMutation = useMutation({
+    mutationFn: async (): Promise<void> => {
+      await api.delete(`/loans/${loanId}`);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["loans"] });
+      router.push("/loans");
     }
   });
 
@@ -293,19 +311,18 @@ const LoanDetailPage = (): JSX.Element => {
             <div className="rounded-xl border border-border bg-surface p-6">
               <h2 className="text-lg font-semibold text-textPrimary">Corregir condiciones</h2>
               <p className="mt-1 text-sm text-textSecondary">
-                Solo si hubo un error al crear el préstamo: ajusta el porcentaje de interés mensual o la frecuencia. Se
-                regenera el plan de cuotas (mismo capital y número de cuotas). No disponible si ya hay cobros
-                registrados.
+                Solo administradores: ajusta interés mensual (%), frecuencia (diaria a mensual) y número de cuotas. Se
+                regenera el plan con el mismo capital. No disponible si ya hay cobros registrados.
               </p>
               {!canSubmitTermsCorrection ? (
                 <p className="mt-3 text-sm text-warning">
                   {loanQuery.data.data.status !== "ACTIVE"
                     ? "Solo préstamos activos se pueden corregir así."
-                    : "No se puede corregir: ya hay cuotas cobradas o pagos registrados."}
+                    : "No se puede corregir ni eliminar: ya hay cuotas cobradas o pagos registrados."}
                 </p>
               ) : null}
               <form
-                className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3 md:items-end"
+                className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 md:items-end"
                 onSubmit={termsForm.handleSubmit(async (values) => {
                   await updateTermsMutation.mutateAsync(values);
                 })}
@@ -338,6 +355,22 @@ const LoanDetailPage = (): JSX.Element => {
                     <option value="MONTHLY">Mensual</option>
                   </select>
                 </div>
+                <div>
+                  <label className="mb-1 block text-sm text-textSecondary">Número de cuotas</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={240}
+                    step={1}
+                    className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
+                    {...termsForm.register("installmentCount", { valueAsNumber: true })}
+                  />
+                  {termsForm.formState.errors.installmentCount ? (
+                    <p className="mt-1 text-xs text-danger">
+                      {termsForm.formState.errors.installmentCount.message}
+                    </p>
+                  ) : null}
+                </div>
                 <button
                   type="submit"
                   disabled={
@@ -353,6 +386,32 @@ const LoanDetailPage = (): JSX.Element => {
               {updateTermsMutation.isError ? (
                 <p className="mt-2 text-sm text-danger">{getErrorMessage(updateTermsMutation.error)}</p>
               ) : null}
+
+              <div className="mt-8 border-t border-border pt-6">
+                <h3 className="text-base font-semibold text-textPrimary">Eliminar préstamo</h3>
+                <p className="mt-1 text-sm text-textSecondary">
+                  Solo si no hay pagos registrados. Esta acción no se puede deshacer.
+                </p>
+                <button
+                  type="button"
+                  disabled={!canSubmitTermsCorrection || deleteLoanMutation.isPending}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "¿Eliminar este préstamo de forma permanente? No hay pagos registrados en el sistema."
+                      )
+                    ) {
+                      void deleteLoanMutation.mutateAsync();
+                    }
+                  }}
+                  className="mt-4 rounded-md border border-danger bg-transparent px-4 py-2 text-sm font-medium text-danger hover:bg-danger/10 disabled:opacity-50"
+                >
+                  {deleteLoanMutation.isPending ? "Eliminando..." : "Eliminar préstamo"}
+                </button>
+                {deleteLoanMutation.isError ? (
+                  <p className="mt-2 text-sm text-danger">{getErrorMessage(deleteLoanMutation.error)}</p>
+                ) : null}
+              </div>
             </div>
           ) : null}
 
@@ -371,7 +430,16 @@ const LoanDetailPage = (): JSX.Element => {
                       Valor
                     </th>
                     <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-textSecondary">
+                      Mora
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-textSecondary">
+                      Total cuota
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-textSecondary">
                       Pagado
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-textSecondary">
+                      Pendiente
                     </th>
                     <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-textSecondary">
                       Estado
@@ -386,7 +454,10 @@ const LoanDetailPage = (): JSX.Element => {
                         {formatBogotaDateFromString(item.dueDate)}
                       </td>
                       <td className="px-3 py-3 text-sm text-textPrimary">{formatCOP(item.amount)}</td>
+                      <td className="px-3 py-3 text-sm text-warning">{formatCOP(item.latePenalty)}</td>
+                      <td className="px-3 py-3 text-sm font-semibold text-textPrimary">{formatCOP(item.totalDue)}</td>
                       <td className="px-3 py-3 text-sm text-textPrimary">{formatCOP(item.paidAmount)}</td>
+                      <td className="px-3 py-3 text-sm text-warning">{formatCOP(item.pendingAmount)}</td>
                       <td className="px-3 py-3">{scheduleStatusBadge(item.status)}</td>
                     </tr>
                   ))}

@@ -7,6 +7,7 @@ import api from "../../../lib/api";
 import TablePagination from "../../../components/ui/TablePagination";
 import { getBogotaYMD } from "../../../lib/bogota";
 import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../lib/page-size";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import { formatCOP } from "../../../lib/formatters";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -361,7 +362,7 @@ type CreditFormValues = z.infer<typeof creditSchema>;
 
 const TreasuryPage = (): JSX.Element => {
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const queryClient = useQueryClient();
 
   const isAdminView = role === "ADMIN" || role === "SUPER_ADMIN";
@@ -600,7 +601,9 @@ const TreasuryPage = (): JSX.Element => {
             }}
           />
           <p className="mt-2 text-xs text-textSecondary">
-            Esta fecha aplica al detalle de liquidación y al cierre para aprobación.
+            {isRouteManagerView
+              ? "Esta fecha aplica a tu liquidación del día y al cierre que envías a revisión."
+              : "Esta fecha aplica al detalle de liquidación y al cierre para aprobación."}
           </p>
         </div>
       ) : null}

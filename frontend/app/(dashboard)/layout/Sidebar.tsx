@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api, { setAccessToken } from "../../../lib/api";
 import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
@@ -71,6 +71,11 @@ const Sidebar = ({ isTabletExpanded, onCloseTablet }: SidebarProps): JSX.Element
 
   const [tabletHoverLock, setTabletHoverLock] = useState(false);
 
+  const [hasMounted, setHasMounted] = useState(false);
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
+
   const expanded = isTabletExpanded || tabletHoverLock;
 
   return (
@@ -127,86 +132,136 @@ const Sidebar = ({ isTabletExpanded, onCloseTablet }: SidebarProps): JSX.Element
 
         <nav className="flex-1 px-2">
           <ul className="space-y-1">
-            {navItems.map((item) => {
-              const active = isNavItemActive(pathname, item.href);
-              const showBadge = item.icon === "alerts";
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    onClick={() => {
-                      // Close overlay on navigation (tablet).
-                      setTabletHoverLock(false);
-                      onCloseTablet();
-                    }}
-                    className={[
-                      "group flex items-center gap-3 rounded-lg px-3 py-3",
-                      "min-h-[44px]",
-                      "transition-colors duration-150",
-                      active
-                        ? "bg-primary/10 text-primary border-r-2 border-primary"
-                        : "text-slate-400 hover:bg-white/5 hover:text-on-surface",
-                      expanded ? "justify-start" : "justify-center",
-                      "lg:justify-start"
-                    ].join(" ")}
-                  >
-                    <span className={active ? "text-primary" : "text-slate-400"}>
-                      <NavIcon icon={item.icon} />
-                    </span>
-
-                    <span
+            {!hasMounted
+              ? Array.from({ length: 8 }).map((_, i) => (
+                  <li key={`sidebar-nav-skel-${i}`}>
+                    <div
                       className={[
-                        "min-w-0 overflow-hidden whitespace-nowrap transition-opacity duration-150",
-                        expanded ? "opacity-100" : "opacity-0",
-                        "lg:opacity-100"
+                        "group flex items-center gap-3 rounded-lg px-3 py-3",
+                        "min-h-[44px]",
+                        expanded ? "justify-start" : "justify-center",
+                        "lg:justify-start"
                       ].join(" ")}
+                      aria-hidden
                     >
-                      <span className="text-sm font-medium">{item.label}</span>
-                      {showBadge ? (
-                        <span className="ml-2 inline-flex items-center justify-center rounded-full bg-error/20 px-2 py-0.5 text-[11px] font-semibold text-error">
-                          {unreadCount}
+                      <span className="h-5 w-5 shrink-0 rounded bg-slate-700/40" />
+                      <span
+                        className={[
+                          "h-4 max-w-[140px] flex-1 rounded bg-slate-700/30",
+                          expanded ? "opacity-100" : "opacity-0",
+                          "lg:opacity-100"
+                        ].join(" ")}
+                      />
+                    </div>
+                  </li>
+                ))
+              : navItems.map((item) => {
+                  const active = isNavItemActive(pathname, item.href);
+                  const showBadge = item.icon === "alerts";
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        onClick={() => {
+                          // Close overlay on navigation (tablet).
+                          setTabletHoverLock(false);
+                          onCloseTablet();
+                        }}
+                        className={[
+                          "group flex items-center gap-3 rounded-lg px-3 py-3",
+                          "min-h-[44px]",
+                          "transition-colors duration-150",
+                          active
+                            ? "bg-primary/10 text-primary border-r-2 border-primary"
+                            : "text-slate-400 hover:bg-white/5 hover:text-on-surface",
+                          expanded ? "justify-start" : "justify-center",
+                          "lg:justify-start"
+                        ].join(" ")}
+                      >
+                        <span className={active ? "text-primary" : "text-slate-400"}>
+                          <NavIcon icon={item.icon} />
                         </span>
-                      ) : null}
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
+
+                        <span
+                          className={[
+                            "min-w-0 overflow-hidden whitespace-nowrap transition-opacity duration-150",
+                            expanded ? "opacity-100" : "opacity-0",
+                            "lg:opacity-100"
+                          ].join(" ")}
+                        >
+                          <span className="text-sm font-medium">{item.label}</span>
+                          {showBadge ? (
+                            <span className="ml-2 inline-flex items-center justify-center rounded-full bg-error/20 px-2 py-0.5 text-[11px] font-semibold text-error">
+                              {unreadCount}
+                            </span>
+                          ) : null}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
           </ul>
         </nav>
 
         <div className="mt-auto border-t border-white/5 p-4">
-          <div className={`flex items-center gap-3 ${expanded ? "justify-start" : "justify-center"} lg:justify-start`}>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-primary-container bg-surface-2">
-              <span className="text-sm font-semibold text-textPrimary">
-                {(user?.name ?? "U")
-                  .split(" ")
-                  .filter(Boolean)
-                  .slice(0, 2)
-                  .map((p) => p[0]?.toUpperCase())
-                  .join("") || "U"}
-              </span>
+          {!hasMounted ? (
+            <div aria-hidden>
+              <div className={`flex items-center gap-3 ${expanded ? "justify-start" : "justify-center"} lg:justify-start`}>
+                <div className="h-10 w-10 shrink-0 rounded-full bg-slate-700/40" />
+                <div
+                  className={`min-w-0 flex-1 space-y-2 transition-opacity duration-150 ${expanded ? "opacity-100" : "opacity-0"} lg:opacity-100`}
+                >
+                  <div className="h-4 max-w-[160px] rounded bg-slate-700/30" />
+                  <div className="h-3 max-w-[100px] rounded bg-slate-700/30" />
+                </div>
+              </div>
+              <div
+                className={`mt-3 h-10 rounded-md bg-slate-700/20 ${expanded ? "opacity-100" : "opacity-0"} transition-opacity duration-150 lg:opacity-100`}
+              />
             </div>
+          ) : (
+            <>
+              <div className={`flex items-center gap-3 ${expanded ? "justify-start" : "justify-center"} lg:justify-start`}>
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-primary-container bg-surface-2">
+                  <span className="text-sm font-semibold text-textPrimary">
+                    {(user?.name ?? "U")
+                      .split(" ")
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .map((p) => p[0]?.toUpperCase())
+                      .join("") || "U"}
+                  </span>
+                </div>
 
-            <div
-              className={`min-w-0 overflow-hidden transition-opacity duration-150 ${expanded ? "opacity-100" : "opacity-0"} lg:opacity-100`}
-            >
-              <p className="truncate text-sm font-semibold">{user?.name ?? "—"}</p>
-              <p className="truncate text-[10px] uppercase tracking-wider text-slate-500">{role === "ROUTE_MANAGER" ? "Encargado de Ruta" : role === "SUPER_ADMIN" ? "Super Administrador" : role === "ADMIN" ? "Administrador" : "Cliente"}</p>
-            </div>
-          </div>
+                <div
+                  className={`min-w-0 overflow-hidden transition-opacity duration-150 ${expanded ? "opacity-100" : "opacity-0"} lg:opacity-100`}
+                >
+                  <p className="truncate text-sm font-semibold">{user?.name ?? "—"}</p>
+                  <p className="truncate text-[10px] uppercase tracking-wider text-slate-500">
+                    {role === "ROUTE_MANAGER"
+                      ? "Encargado de Ruta"
+                      : role === "SUPER_ADMIN"
+                        ? "Super Administrador"
+                        : role === "ADMIN"
+                          ? "Administrador"
+                          : "Cliente"}
+                  </p>
+                </div>
+              </div>
 
-          <div
-            className={`mt-3 ${expanded ? "opacity-100" : "opacity-0"} transition-opacity duration-150 lg:opacity-100`}
-          >
-            <button
-              type="button"
-              onClick={onLogout}
-              className="flex w-full items-center justify-center rounded-md bg-white/5 px-3 py-2 text-sm font-medium text-on-surface hover:bg-white/10"
-            >
-              Cerrar sesión
-            </button>
-          </div>
+              <div
+                className={`mt-3 ${expanded ? "opacity-100" : "opacity-0"} transition-opacity duration-150 lg:opacity-100`}
+              >
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="flex w-full items-center justify-center rounded-md bg-white/5 px-3 py-2 text-sm font-medium text-on-surface hover:bg-white/10"
+                >
+                  Cerrar sesión
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </aside>
     </>

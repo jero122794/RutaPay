@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../../../lib/api";
+import { getEffectiveRoles, pickPrimaryRole } from "../../../../lib/effective-roles";
 import { useAuthStore, type AppModuleKey, type UserRole } from "../../../../store/authStore";
 
 const getErrorMessage = (error: unknown): string => {
@@ -48,7 +49,7 @@ const roleLabel = (r: UserRole): string => {
 
 const RoleModulesPage = (): JSX.Element => {
   const user = useAuthStore((state) => state.user);
-  const role: UserRole = user?.roles[0] ?? "CLIENT";
+  const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const queryClient = useQueryClient();
 
   const [grants, setGrants] = useState<Record<UserRole, AppModuleKey[]> | null>(null);
