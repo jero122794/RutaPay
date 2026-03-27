@@ -38,7 +38,8 @@ export const listNotificationsController = async (
   }
 
   const actorRoles = request.authUser?.roles ?? [];
-  const result = await notificationsService.listNotifications(actorId, actorRoles);
+  const actorBusinessId = request.authUser?.businessId ?? null;
+  const result = await notificationsService.listNotifications(actorId, actorRoles, actorBusinessId);
 
   reply.send({
     data: result.data,

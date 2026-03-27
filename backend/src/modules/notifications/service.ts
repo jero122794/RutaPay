@@ -136,9 +136,11 @@ export const markRead = async (actorId: string, notificationId: string): Promise
 
 const buildNotifications = async (
   actorId: string,
-  actorRoles: string[]
+  actorRoles: string[],
+  actorBusinessId: string | null
 ): Promise<Omit<NotificationListResponse, "total">> => {
   const scope = await ensureActorScope(actorId, actorRoles);
+  const isSuper = actorRoles.includes("SUPER_ADMIN");
   const now = new Date();
 
   const today = getBogotaDayBoundsUTC(0);
@@ -155,9 +157,15 @@ const buildNotifications = async (
         }
       : scope === "ROUTE_MANAGER"
         ? {
-            loan: { managerId: actorId }
+            loan: actorBusinessId
+              ? { managerId: actorId, route: { businessId: actorBusinessId } }
+              : { managerId: actorId, route: { businessId: { in: [] } } }
           }
-        : {};
+        : isSuper
+          ? {}
+          : actorBusinessId
+            ? { loan: { route: { businessId: actorBusinessId } } }
+            : { loan: { route: { businessId: { in: [] } } } };
 
   const schedules = await prisma.paymentSchedule.findMany({
     where: {
@@ -256,8 +264,12 @@ const buildNotifications = async (
   return { data: notifWithRead };
 };
 
-export const listNotifications = async (actorId: string, actorRoles: string[]): Promise<NotificationListResponse> => {
-  const result = await buildNotifications(actorId, actorRoles);
+export const listNotifications = async (
+  actorId: string,
+  actorRoles: string[],
+  actorBusinessId: string | null
+): Promise<NotificationListResponse> => {
+  const result = await buildNotifications(actorId, actorRoles, actorBusinessId);
   return {
     data: result.data,
     total: result.data.length

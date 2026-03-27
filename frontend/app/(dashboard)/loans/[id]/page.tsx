@@ -282,6 +282,10 @@ const LoanDetailPage = (): JSX.Element => {
               <p className="text-sm text-textPrimary">{loanQuery.data.data.status}</p>
             </div>
             <div className="space-y-2">
+              <p className="text-xs uppercase tracking-wider text-textSecondary">Prestado</p>
+              <p className="text-sm font-semibold text-textPrimary">{formatCOP(loanQuery.data.data.principal)}</p>
+            </div>
+            <div className="space-y-2">
               <p className="text-xs uppercase tracking-wider text-textSecondary">Pagado</p>
               <p className="text-sm font-semibold">{formatCOP(totals.paidTotal)}</p>
             </div>
