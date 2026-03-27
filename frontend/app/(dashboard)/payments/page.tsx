@@ -76,6 +76,13 @@ interface PaymentListResponse {
   limit: number;
 }
 
+interface LoanSearchOption {
+  loanId: string;
+  sequence: number;
+  clientName: string;
+  label: string;
+}
+
 const getErrorMessage = (error: unknown): string => {
   if (axios.isAxiosError(error)) {
     const message = (error.response?.data as { message?: string } | undefined)?.message;
@@ -173,6 +180,7 @@ const PaymentsPage = (): JSX.Element => {
   });
 
   const [selectedLoanId, setSelectedLoanId] = useState<string>("");
+  const [loanSearchTerm, setLoanSearchTerm] = useState<string>("");
 
   const availableLoansForPayment = useMemo(() => {
     const loans = loansQuery.data?.data ?? [];
@@ -184,6 +192,43 @@ const PaymentsPage = (): JSX.Element => {
     if (selectedLoanId && selectedIsAvailable) return selectedLoanId;
     return availableLoansForPayment[0]?.id ?? "";
   }, [availableLoansForPayment, selectedLoanId]);
+
+  const loanSearchOptions = useMemo<LoanSearchOption[]>(() => {
+    return availableLoansForPayment.map((loan, index) => {
+      const sequence = index + 1;
+      const clientName = clientNameById[loan.clientId] ?? "Cliente";
+      return {
+        loanId: loan.id,
+        sequence,
+        clientName,
+        label: `${sequence} • ${clientName}`
+      };
+    });
+  }, [availableLoansForPayment, clientNameById]);
+
+  const selectedLoanOption = useMemo(() => {
+    return loanSearchOptions.find((opt) => opt.loanId === effectiveLoanId) ?? null;
+  }, [loanSearchOptions, effectiveLoanId]);
+
+  useEffect(() => {
+    if (selectedLoanOption) {
+      setLoanSearchTerm(selectedLoanOption.label);
+    } else if (loanSearchOptions.length === 0) {
+      setLoanSearchTerm("");
+    }
+  }, [selectedLoanOption, loanSearchOptions.length]);
+
+  const filteredLoanOptions = useMemo(() => {
+    const term = loanSearchTerm.trim().toLowerCase();
+    if (!term) return loanSearchOptions;
+    return loanSearchOptions.filter((opt) => {
+      return (
+        opt.label.toLowerCase().includes(term) ||
+        String(opt.sequence).includes(term) ||
+        opt.clientName.toLowerCase().includes(term)
+      );
+    });
+  }, [loanSearchTerm, loanSearchOptions]);
 
   const scheduleQuery = useQuery({
     queryKey: ["payment-schedule", effectiveLoanId],
@@ -381,7 +426,7 @@ const PaymentsPage = (): JSX.Element => {
             >
               {availableLoansForPayment.map((loan, index) => (
                 <option key={loan.id} value={loan.id}>
-                  Préstamo #{index + 1} • {formatCOP(loan.totalAmount)} ({loan.status})
+                  {index + 1} • {formatCOP(loan.totalAmount)} ({loan.status})
                 </option>
               ))}
             </select>
@@ -459,18 +504,50 @@ const PaymentsPage = (): JSX.Element => {
 
               <div className="mt-4 space-y-2">
                 <label className="text-sm text-textSecondary">Préstamo</label>
-                <select
+                <input
+                  type="search"
                   className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-                  value={effectiveLoanId}
-                  onChange={(e) => setSelectedLoanId(e.target.value)}
-                >
-                  {availableLoansForPayment.map((loan, index) => (
-                    <option key={loan.id} value={loan.id}>
-                      Préstamo #{index + 1} • {formatCOP(loan.totalAmount)} •{" "}
-                      {clientNameById[loan.clientId] ?? loan.clientId} ({loan.status})
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Buscar por secuencial o nombre del cliente"
+                  value={loanSearchTerm}
+                  onChange={(e) => {
+                    setLoanSearchTerm(e.target.value);
+                  }}
+                />
+                {availableLoansForPayment.length > 0 ? (
+                  <div className="max-h-56 overflow-y-auto rounded-md border border-border bg-bg">
+                    {filteredLoanOptions.length === 0 ? (
+                      <p className="px-3 py-2 text-sm text-textSecondary">Sin resultados para la búsqueda.</p>
+                    ) : (
+                      filteredLoanOptions.map((opt) => {
+                        const isActive = opt.loanId === effectiveLoanId;
+                        return (
+                          <button
+                            key={opt.loanId}
+                            type="button"
+                            onClick={() => {
+                              setSelectedLoanId(opt.loanId);
+                              setLoanSearchTerm(opt.label);
+                            }}
+                            className={[
+                              "flex w-full items-center justify-between border-b border-border px-3 py-2 text-left text-sm last:border-b-0",
+                              isActive ? "bg-primary/10 text-primary" : "text-textPrimary hover:bg-surface"
+                            ].join(" ")}
+                          >
+                            <span>{opt.label}</span>
+                            <span className="text-xs text-textSecondary">
+                              {formatCOP(
+                                availableLoansForPayment.find((loan) => loan.id === opt.loanId)?.totalAmount ?? 0
+                              )}
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                ) : null}
+                {selectedLoanOption ? (
+                  <p className="text-xs text-textSecondary">Seleccionado: {selectedLoanOption.label}</p>
+                ) : null}
               </div>
 
               {availableLoansForPayment.length === 0 ? (
