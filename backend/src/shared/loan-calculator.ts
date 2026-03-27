@@ -75,11 +75,13 @@ const calculateMonthlyEqualPrincipalInterest = (input: {
   const totalInterest = interestPerPart.reduce((a, b) => a + b, 0);
   const totalAmount = principal + totalInterest;
 
-  const amounts = principalParts.map((p, i) => p + interestPerPart[i]);
+  const amounts = principalParts.map((p, i) => p + (interestPerPart[i] ?? 0));
   const sumAmounts = amounts.reduce((a, b) => a + b, 0);
   const diff = totalAmount - sumAmounts;
   if (diff !== 0 && amounts.length > 0) {
-    amounts[amounts.length - 1] += diff;
+    const lastIndex = amounts.length - 1;
+    const lastValue = amounts[lastIndex] ?? 0;
+    amounts[lastIndex] = lastValue + diff;
   }
 
   const schedule: ScheduleItem[] = [];
@@ -89,7 +91,7 @@ const calculateMonthlyEqualPrincipalInterest = (input: {
     schedule.push({
       installmentNumber: i + 1,
       dueDate,
-      amount: amounts[i],
+      amount: amounts[i] ?? 0,
       status: "PENDING"
     });
   }
@@ -120,11 +122,11 @@ export const calculateLoan = (input: LoanInput): LoanResult => {
     });
   }
 
-  const interestPeriods = monthlyInterestPeriodCount(frequency, installmentCount);
+  const interestPeriods = monthlyInterestPeriodCount(frequency, n);
   const totalInterest = Math.round(principal * interestRate * interestPeriods);
   const totalAmount = principal + totalInterest;
-  const installmentAmount = Math.round(totalAmount / installmentCount);
-  const lastInstallment = totalAmount - installmentAmount * (installmentCount - 1);
+  const installmentAmount = Math.round(totalAmount / n);
+  const lastInstallment = totalAmount - installmentAmount * (n - 1);
 
   const schedule: ScheduleItem[] = [];
   const frequencyDays: Record<LoanFrequency, number> = {
@@ -137,7 +139,7 @@ export const calculateLoan = (input: LoanInput): LoanResult => {
 
   if (frequency === "DAILY" && excludeWeekends) {
     const cursorDate = new Date(startDate);
-    for (let i = 1; i <= installmentCount; i += 1) {
+    for (let i = 1; i <= n; i += 1) {
       if (i === 1) {
         while (cursorDate.getDay() === 0 || cursorDate.getDay() === 6) {
           cursorDate.setDate(cursorDate.getDate() + 1);
@@ -152,18 +154,18 @@ export const calculateLoan = (input: LoanInput): LoanResult => {
       schedule.push({
         installmentNumber: i,
         dueDate: new Date(cursorDate),
-        amount: i === installmentCount ? lastInstallment : installmentAmount,
+        amount: i === n ? lastInstallment : installmentAmount,
         status: "PENDING"
       });
     }
   } else {
-    for (let i = 1; i <= installmentCount; i += 1) {
+    for (let i = 1; i <= n; i += 1) {
       const dueDate = new Date(startDate);
       dueDate.setDate(dueDate.getDate() + daysBetween * (i - 1));
       schedule.push({
         installmentNumber: i,
         dueDate,
-        amount: i === installmentCount ? lastInstallment : installmentAmount,
+        amount: i === n ? lastInstallment : installmentAmount,
         status: "PENDING"
       });
     }

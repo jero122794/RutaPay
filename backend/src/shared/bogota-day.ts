@@ -30,8 +30,18 @@ export const bogotaYmdFromUtcDate = (d: Date): string => {
 export const bogotaCalendarDaysBetween = (dueUtc: Date, paymentUtc: Date): number => {
   const a = bogotaYmdFromUtcDate(dueUtc);
   const b = bogotaYmdFromUtcDate(paymentUtc);
-  const [ya, ma, da] = a.split("-").map((x) => Number(x));
-  const [yb, mb, db] = b.split("-").map((x) => Number(x));
+  const parseYmd = (value: string): [number, number, number] => {
+    const parts = value.split("-");
+    if (parts.length !== 3) {
+      throw new Error("Invalid Bogotá date key.");
+    }
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);
+    const d = Number(parts[2]);
+    return [y, m, d];
+  };
+  const [ya, ma, da] = parseYmd(a);
+  const [yb, mb, db] = parseYmd(b);
   const dayA = Date.UTC(ya, ma - 1, da);
   const dayB = Date.UTC(yb, mb - 1, db);
   return Math.round((dayB - dayA) / (24 * 60 * 60 * 1000));
