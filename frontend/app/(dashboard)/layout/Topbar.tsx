@@ -4,8 +4,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import api from "../../../lib/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import api, { setAccessToken } from "../../../lib/api";
 import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import { CommandPalette } from "./components/CommandPalette";
@@ -93,7 +93,9 @@ interface TopbarProps {
 export const Topbar = ({ onToggleTabletSidebar }: TopbarProps): JSX.Element => {
   const pathname = usePathname();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
+  const clearUser = useAuthStore((state) => state.clearUser);
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
 
   const [isOnline, setIsOnline] = useState(true);
@@ -151,6 +153,20 @@ export const Topbar = ({ onToggleTabletSidebar }: TopbarProps): JSX.Element => {
   const pageTitle = useMemo((): string => getPageTitle(pathname), [pathname]);
   const breadcrumb = useMemo((): BreadcrumbItem[] => buildBreadcrumb(pathname), [pathname]);
 
+  const onLogout = (): void => {
+    void (async (): Promise<void> => {
+      try {
+        await api.post("/auth/logout", {});
+      } catch {
+        // Session may already be invalid; still clear client state.
+      }
+      setAccessToken("");
+      queryClient.clear();
+      clearUser();
+      router.push("/login");
+    })();
+  };
+
   return (
     <header className="sticky top-0 z-40 relative border-b border-white/5 bg-[#0a0f1e]/70 backdrop-blur-xl">
       {/* Offline banner */}
@@ -179,7 +195,7 @@ export const Topbar = ({ onToggleTabletSidebar }: TopbarProps): JSX.Element => {
             <p className="truncate font-headline text-lg font-bold text-on-surface">{pageTitle}</p>
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             <Link
               href="/notifications"
               className={[
@@ -196,6 +212,13 @@ export const Topbar = ({ onToggleTabletSidebar }: TopbarProps): JSX.Element => {
                 </span>
               ) : null}
             </Link>
+            <button
+              type="button"
+              onClick={onLogout}
+              className="shrink-0 rounded-lg border border-border px-2.5 py-2 text-xs font-semibold text-textSecondary hover:bg-white/5 hover:text-on-surface"
+            >
+              Salir
+            </button>
           </div>
         </div>
 

@@ -76,10 +76,11 @@ const calculateMonthlyEqualPrincipalInterest = (input: {
     amounts[amounts.length - 1] += diff;
   }
 
+  // Each installment is due at the end of its month period (1st at +30d, 2nd at +60d, ...).
   const schedule: ScheduleItem[] = [];
   for (let i = 0; i < n; i += 1) {
     const dueDate = new Date(startDate);
-    dueDate.setDate(dueDate.getDate() + 30 * i);
+    dueDate.setDate(dueDate.getDate() + 30 * (i + 1));
     schedule.push({
       installmentNumber: i + 1,
       dueDate,

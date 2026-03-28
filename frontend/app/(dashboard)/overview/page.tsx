@@ -352,12 +352,8 @@ const OverviewPage = (): JSX.Element => {
         </section>
 
         <section className="overflow-hidden rounded-2xl border border-white/5 bg-surface-container">
-          <div className="flex items-center justify-between border-b border-white/5 p-6">
+          <div className="border-b border-white/5 p-6">
             <h2 className="font-headline text-2xl font-extrabold text-on-surface">Cobros de Hoy</h2>
-            <div className="flex gap-2">
-              <button className="rounded-lg bg-blue-400/10 px-4 py-2 text-xs font-bold text-blue-400">Exportar</button>
-              <button className="rounded-lg bg-white/5 px-4 py-2 text-xs font-bold text-on-surface">Ver historial</button>
-            </div>
           </div>
           <div className="rutapay-table-wrap rounded-none border-0 bg-transparent shadow-none">
             <table className="rutapay-table">
