@@ -3,7 +3,6 @@ import { createHash } from "crypto";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
-import jwt from "@fastify/jwt";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { authRouter } from "./modules/auth/router.js";
@@ -63,7 +62,6 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     origin: env.CORS_ORIGIN,
     credentials: true
   });
-  await app.register(jwt, { secret: env.JWT_SECRET });
   await app.register(rateLimit, {
     global: false,
     max: 100,
