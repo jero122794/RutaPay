@@ -23,6 +23,8 @@ const getErrorMessage = (error: unknown): string => {
 interface BusinessDetail {
   id: string;
   name: string;
+  licenseStartsAt: string | null;
+  licenseEndsAt: string | null;
   createdAt: string;
   updatedAt: string;
   members: Array<{
@@ -72,6 +74,17 @@ const firstAdminSchema = z
 type NameForm = z.infer<typeof nameSchema>;
 type AssignForm = z.infer<typeof assignSchema>;
 type FirstAdminForm = z.infer<typeof firstAdminSchema>;
+
+const licenseSchema = z
+  .object({
+    months: z.union([z.coerce.number().int().positive(), z.literal("")]).optional(),
+    years: z.union([z.coerce.number().int().positive(), z.literal("")]).optional()
+  })
+  .refine((data) => Boolean(data.months) !== Boolean(data.years), {
+    message: "Ingresa meses o años (solo uno)."
+  });
+
+type LicenseForm = z.infer<typeof licenseSchema>;
 
 const roleLabel = (r: string): string => {
   switch (r) {
@@ -129,6 +142,11 @@ const BusinessDetailPage = (): JSX.Element => {
       password: "",
       confirmPassword: ""
     }
+  });
+
+  const licenseForm = useForm<LicenseForm>({
+    resolver: zodResolver(licenseSchema),
+    defaultValues: { months: "", years: "" }
   });
 
   const updateNameMutation = useMutation({
@@ -193,6 +211,19 @@ const BusinessDetailPage = (): JSX.Element => {
     }
   });
 
+  const licenseMutation = useMutation({
+    mutationFn: async (values: LicenseForm): Promise<void> => {
+      const months = typeof values.months === "number" ? values.months : undefined;
+      const years = typeof values.years === "number" ? values.years : undefined;
+      await api.post(`/businesses/${id}/license`, { months, years });
+    },
+    onSuccess: async () => {
+      licenseForm.reset({ months: "", years: "" });
+      await queryClient.invalidateQueries({ queryKey: ["business", id] });
+      await queryClient.invalidateQueries({ queryKey: ["businesses"] });
+    }
+  });
+
   if (role !== "SUPER_ADMIN") {
     return (
       <section className="rounded-xl border border-border bg-surface p-6">
@@ -233,6 +264,73 @@ const BusinessDetailPage = (): JSX.Element => {
 
       {detailQuery.data ? (
         <>
+          <div className="rounded-xl border border-border bg-surface p-6">
+            <h2 className="text-sm font-semibold text-textSecondary">Licencia del negocio</h2>
+            <p className="mt-1 text-xs text-textSecondary">
+              Define por cuántos meses o años estará habilitado el uso para roles operativos (ADMIN y ROUTE_MANAGER).
+              Los CLIENT pueden seguir accediendo.
+            </p>
+            <div className="mt-3 text-xs text-textSecondary">
+              <div>
+                <span className="font-medium text-textPrimary">Inicio:</span>{" "}
+                {detailQuery.data.licenseStartsAt ? detailQuery.data.licenseStartsAt.slice(0, 10) : "—"}
+              </div>
+              <div className="mt-1">
+                <span className="font-medium text-textPrimary">Vence:</span>{" "}
+                {detailQuery.data.licenseEndsAt ? detailQuery.data.licenseEndsAt.slice(0, 10) : "—"}
+              </div>
+            </div>
+
+            <form
+              className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3"
+              onSubmit={licenseForm.handleSubmit(async (v) => {
+                try {
+                  await licenseMutation.mutateAsync(v);
+                } catch (e) {
+                  licenseForm.setError("root", { message: getErrorMessage(e) });
+                }
+              })}
+            >
+              <div>
+                <label className="mb-1 block text-xs text-textSecondary">Meses</label>
+                <input
+                  inputMode="numeric"
+                  placeholder="Ej: 12"
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-textPrimary"
+                  {...licenseForm.register("months")}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-textSecondary">Años</label>
+                <input
+                  inputMode="numeric"
+                  placeholder="Ej: 1"
+                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-textPrimary"
+                  {...licenseForm.register("years")}
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="submit"
+                  disabled={licenseMutation.isPending}
+                  className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-50 sm:w-auto"
+                >
+                  {licenseMutation.isPending ? "Actualizando..." : "Asignar licencia"}
+                </button>
+              </div>
+              {licenseForm.formState.errors.root?.message ? (
+                <p className="sm:col-span-3 text-xs text-danger">{licenseForm.formState.errors.root.message}</p>
+              ) : null}
+              {!licenseForm.formState.isValid && licenseForm.formState.isSubmitted ? (
+                <p className="sm:col-span-3 text-xs text-danger">
+                  {licenseForm.formState.errors.months?.message ??
+                    licenseForm.formState.errors.years?.message ??
+                    "Formulario inválido."}
+                </p>
+              ) : null}
+            </form>
+          </div>
+
           <div className="rounded-xl border border-border bg-surface p-6">
             <h2 className="text-sm font-semibold text-textSecondary">Nombre del negocio</h2>
             <form

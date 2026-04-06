@@ -12,6 +12,7 @@ import {
   listBusinessesController,
   reconcileBusinessScopeController,
   removeBusinessMemberController,
+  setBusinessLicenseController,
   updateBusinessController
 } from "./controller.js";
 
@@ -40,6 +41,11 @@ export const businessesRouter = async (app: FastifyInstance): Promise<void> => {
     "/:id",
     { preHandler: [authGuard, roleGuard(["SUPER_ADMIN"]), moduleGuard("BUSINESSES")] },
     updateBusinessController
+  );
+  app.post(
+    "/:id/license",
+    { preHandler: [authGuard, roleGuard(["SUPER_ADMIN"]), moduleGuard("BUSINESSES")] },
+    setBusinessLicenseController
   );
   app.post(
     "/:id/first-admin",

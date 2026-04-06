@@ -20,6 +20,10 @@ type LoginFormData = z.infer<typeof loginSchema>;
 interface LoginResponse {
   data: {
     accessToken: string;
+    licenseWarning?: {
+      endsAt: string;
+      daysRemaining: number;
+    };
     user: {
       id: string;
       name: string;
@@ -36,6 +40,10 @@ const LoginPage = (): JSX.Element => {
   const router = useRouter();
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [licenseWarning, setLicenseWarning] = useState<{ endsAt: string; daysRemaining: number } | null>(
+    null
+  );
+  const [shouldRedirectAfterWarning, setShouldRedirectAfterWarning] = useState(false);
   const setUser = useAuthStore((state) => state.setUser);
 
   const form = useForm<LoginFormData>({
@@ -50,6 +58,8 @@ const LoginPage = (): JSX.Element => {
   const onSubmit = async (values: LoginFormData): Promise<void> => {
     setError("");
     setSuccess("");
+    setLicenseWarning(null);
+    setShouldRedirectAfterWarning(false);
     try {
       const response = await api.post<LoginResponse>("/auth/login", values);
       setAccessToken(response.data.data.accessToken);
@@ -61,6 +71,16 @@ const LoginPage = (): JSX.Element => {
         businessId: response.data.data.user.businessId ?? null,
         modules: (response.data.data.user.modules ?? []) as AppModuleKey[]
       });
+
+      const roles = response.data.data.user.roles as UserRole[];
+      const isAdmin = roles.includes("ADMIN") && !roles.includes("SUPER_ADMIN");
+      if (isAdmin && response.data.data.licenseWarning) {
+        setLicenseWarning(response.data.data.licenseWarning);
+        setShouldRedirectAfterWarning(true);
+        setSuccess(`Bienvenido, ${response.data.data.user.name}.`);
+        return;
+      }
+
       setSuccess(`Bienvenido, ${response.data.data.user.name}.`);
       router.push("/overview");
     } catch {
@@ -121,6 +141,36 @@ const LoginPage = (): JSX.Element => {
           </Link>
         </p>
       </div>
+
+      {licenseWarning ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-2xl">
+            <h2 className="text-lg font-semibold text-textPrimary">Tu licencia está por vencer</h2>
+            <p className="mt-2 text-sm text-textSecondary">
+              Te quedan <span className="font-semibold text-textPrimary">{licenseWarning.daysRemaining}</span>{" "}
+              días de licencia. Vence el{" "}
+              <span className="font-semibold text-textPrimary">
+                {licenseWarning.endsAt.slice(0, 10)}
+              </span>
+              .
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-border bg-bg px-4 py-2 text-sm font-medium text-textPrimary"
+                onClick={() => {
+                  setLicenseWarning(null);
+                  if (shouldRedirectAfterWarning) {
+                    router.push("/overview");
+                  }
+                }}
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 };

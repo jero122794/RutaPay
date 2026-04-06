@@ -18,6 +18,15 @@ export const updateBusinessSchema = z.object({
   name: z.string().min(2).max(120)
 });
 
+export const setBusinessLicenseSchema = z
+  .object({
+    months: z.number().int().positive().optional(),
+    years: z.number().int().positive().optional()
+  })
+  .refine((data) => Boolean(data.months) !== Boolean(data.years), {
+    message: "Provide either months or years (not both)."
+  });
+
 export const assignBusinessMemberSchema = z.object({
   userId: z.string().cuid(),
   role: z.enum(["ADMIN", "ROUTE_MANAGER", "CLIENT"])
@@ -40,5 +49,6 @@ export const createFirstBusinessAdminSchema = z.object({
 
 export type CreateBusinessInput = z.infer<typeof createBusinessSchema>;
 export type UpdateBusinessInput = z.infer<typeof updateBusinessSchema>;
+export type SetBusinessLicenseInput = z.infer<typeof setBusinessLicenseSchema>;
 export type AssignBusinessMemberInput = z.infer<typeof assignBusinessMemberSchema>;
 export type CreateFirstBusinessAdminInput = z.infer<typeof createFirstBusinessAdminSchema>;

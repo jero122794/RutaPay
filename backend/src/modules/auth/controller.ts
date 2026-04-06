@@ -81,7 +81,8 @@ export const loginController = async (request: FastifyRequest, reply: FastifyRep
     reply.send({
       data: {
         user: result.user,
-        accessToken: result.tokens.accessToken
+        accessToken: result.tokens.accessToken,
+        ...(result.licenseWarning ? { licenseWarning: result.licenseWarning } : {})
       },
       message: "Login successful."
     });

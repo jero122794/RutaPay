@@ -84,6 +84,7 @@ import type {
   AssignBusinessMemberInput,
   CreateBusinessInput,
   CreateFirstBusinessAdminInput,
+  SetBusinessLicenseInput,
   UpdateBusinessInput
 } from "./schema.js";
 
@@ -92,6 +93,8 @@ const TENANT_ROLES: RoleName[] = ["ADMIN", "ROUTE_MANAGER", "CLIENT"];
 export interface BusinessView {
   id: string;
   name: string;
+  licenseStartsAt: Date | null;
+  licenseEndsAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -116,9 +119,18 @@ export interface AssignableUserView {
   roles: RoleName[];
 }
 
-const toView = (row: { id: string; name: string; createdAt: Date; updatedAt: Date }): BusinessView => ({
+const toView = (row: {
+  id: string;
+  name: string;
+  licenseStartsAt: Date | null;
+  licenseEndsAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): BusinessView => ({
   id: row.id,
   name: row.name,
+  licenseStartsAt: row.licenseStartsAt,
+  licenseEndsAt: row.licenseEndsAt,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt
 });
@@ -208,6 +220,52 @@ export const updateBusiness = async (id: string, input: UpdateBusinessInput): Pr
     where: { id },
     data: { name: input.name }
   });
+  return toView(updated);
+};
+
+const addMonths = (base: Date, months: number): Date => {
+  const d = new Date(base);
+  d.setMonth(d.getMonth() + months);
+  return d;
+};
+
+const addYears = (base: Date, years: number): Date => {
+  const d = new Date(base);
+  d.setFullYear(d.getFullYear() + years);
+  return d;
+};
+
+export const setBusinessLicense = async (id: string, input: SetBusinessLicenseInput): Promise<BusinessView> => {
+  const exists = await prisma.business.findUnique({
+    where: { id },
+    select: { id: true, licenseEndsAt: true }
+  });
+  if (!exists) {
+    throw new Error("Business not found.");
+  }
+
+  const now = new Date();
+  const base = exists.licenseEndsAt && exists.licenseEndsAt.getTime() > now.getTime() ? exists.licenseEndsAt : now;
+
+  const nextEndsAt =
+    typeof input.months === "number"
+      ? addMonths(base, input.months)
+      : typeof input.years === "number"
+        ? addYears(base, input.years)
+        : null;
+
+  if (!nextEndsAt) {
+    throw new Error("Invalid license duration.");
+  }
+
+  const updated = await prisma.business.update({
+    where: { id },
+    data: {
+      licenseStartsAt: now,
+      licenseEndsAt: nextEndsAt
+    }
+  });
+
   return toView(updated);
 };
 

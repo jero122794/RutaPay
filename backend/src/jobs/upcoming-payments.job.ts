@@ -2,15 +2,27 @@
 import cron from "node-cron";
 import { prisma } from "../shared/prisma.js";
 import { sendPushToUser } from "../modules/notifications/service.js";
+import { bogotaDayBoundsUtc, getBogotaTodayYmd } from "../shared/bogota-day.js";
 
 const formatDay = (d: Date): string => d.toISOString().slice(0, 10);
 
+const addDaysYmd = (ymd: string, deltaDays: number): string => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!m) {
+    throw new Error("Invalid date format. Use YYYY-MM-DD.");
+  }
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const utcMs = Date.UTC(y, mo - 1, d + deltaDays, 0, 0, 0, 0);
+  return new Date(utcMs).toISOString().slice(0, 10);
+};
+
 export const registerUpcomingJobs = (): void => {
   cron.schedule("0 7 * * *", async (): Promise<void> => {
-    const now = new Date();
-    const tomorrowStart = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    tomorrowStart.setUTCHours(0, 0, 0, 0);
-    const tomorrowEnd = new Date(tomorrowStart.getTime() + 24 * 60 * 60 * 1000);
+    const todayYmd = getBogotaTodayYmd();
+    const tomorrowYmd = addDaysYmd(todayYmd, 1);
+    const { start: tomorrowStart, endExclusive: tomorrowEnd } = bogotaDayBoundsUtc(tomorrowYmd);
 
     const tomorrowSchedules = await prisma.paymentSchedule.findMany({
       where: {
@@ -28,7 +40,7 @@ export const registerUpcomingJobs = (): void => {
 
     await Promise.all(
       tomorrowSchedules.map(async (item) => {
-        const body = `Próxima cuota el ${formatDay(item.dueDate)}.`;
+        const body = `Próxima cuota el ${tomorrowYmd}.`;
         await Promise.all([
           sendPushToUser(item.loan.clientId, {
             title: "Cuota próxima",

@@ -369,12 +369,31 @@ export const reversePayment = async (
       throw new Error("Schedule not found.");
     }
 
+    const loanForPenalty = await tx.loan.findUnique({
+      where: { id: payment.loanId },
+      select: { totalInterest: true, installmentCount: true }
+    });
+    if (!loanForPenalty) {
+      throw new Error("Loan not found.");
+    }
+
+    const interestShareCOP = interestSharePerInstallmentCOP(
+      Math.round(decimalToNumber(loanForPenalty.totalInterest)),
+      loanForPenalty.installmentCount
+    );
+    const latePenaltyAtPayment = computeLatePenaltyCOP(
+      schedule.dueDate,
+      payment.createdAt,
+      interestShareCOP
+    );
+
     const currentPaid = Math.round(decimalToNumber(schedule.paidAmount));
     const paymentAmount = Math.round(decimalToNumber(payment.amount));
     const scheduleAmount = Math.round(decimalToNumber(schedule.amount));
+    const totalDueNumber = scheduleAmount + latePenaltyAtPayment;
     const nextPaid = Math.max(0, currentPaid - paymentAmount);
     const nextStatus: "PENDING" | "PAID" | "OVERDUE" | "PARTIAL" =
-      nextPaid <= 0 ? "PENDING" : nextPaid >= scheduleAmount ? "PAID" : "PARTIAL";
+      nextPaid <= 0 ? "PENDING" : nextPaid >= totalDueNumber ? "PAID" : "PARTIAL";
 
     await tx.paymentSchedule.update({
       where: { id: schedule.id },

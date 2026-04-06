@@ -5,6 +5,7 @@ import type { SubscribeInput } from "./schema.js";
 import { prisma } from "../../shared/prisma.js";
 import { redis } from "../../shared/redis.js";
 import { env } from "../../shared/env.js";
+import { bogotaDayBoundsUtc, getBogotaTodayYmd } from "../../shared/bogota-day.js";
 
 let vapidConfigured = false;
 try {
@@ -49,18 +50,16 @@ const isScheduleOverdue = (scheduleDue: Date, now: Date): boolean => {
   return scheduleDue.getTime() < now.getTime();
 };
 
-const getBogotaDayBoundsUTC = (offsetDays: number): { start: Date; end: Date } => {
-  // Bogota is UTC-5 without DST. We build bounds by shifting by +5h in UTC.
-  const now = new Date();
-  const shifted = new Date(now.getTime() + 5 * 60 * 60 * 1000);
-
-  shifted.setUTCDate(shifted.getUTCDate() + offsetDays);
-  shifted.setUTCHours(0, 0, 0, 0);
-
-  const start = new Date(shifted.getTime() - 5 * 60 * 60 * 1000);
-  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-
-  return { start, end };
+const addDaysYmd = (ymd: string, deltaDays: number): string => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!m) {
+    throw new Error("Invalid date format. Use YYYY-MM-DD.");
+  }
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const utcMs = Date.UTC(y, mo - 1, d + deltaDays, 0, 0, 0, 0);
+  return new Date(utcMs).toISOString().slice(0, 10);
 };
 
 const mapToScheduleForAlert = (item: {
@@ -143,8 +142,12 @@ const buildNotifications = async (
   const isSuper = actorRoles.includes("SUPER_ADMIN");
   const now = new Date();
 
-  const today = getBogotaDayBoundsUTC(0);
-  const tomorrow = getBogotaDayBoundsUTC(1);
+  const todayYmd = getBogotaTodayYmd();
+  const tomorrowYmd = addDaysYmd(todayYmd, 1);
+  const todayBounds = bogotaDayBoundsUtc(todayYmd);
+  const tomorrowBounds = bogotaDayBoundsUtc(tomorrowYmd);
+  const today = { start: todayBounds.start, end: todayBounds.endExclusive };
+  const tomorrow = { start: tomorrowBounds.start, end: tomorrowBounds.endExclusive };
 
   const whereBase: {
     statusIn: Array<"PENDING" | "OVERDUE" | "PARTIAL">;
@@ -227,7 +230,7 @@ const buildNotifications = async (
       id: s.id,
       type: "UPCOMING_TOMORROW",
       title: "Cuota próxima",
-      message: `Próxima cuota el ${s.dueDate.toISOString().slice(0, 10)} para el cliente ${s.clientName}.`,
+      message: `Próxima cuota el ${tomorrowYmd} para el cliente ${s.clientName}.`,
       createdAt: s.dueDate
     });
   }

@@ -1,6 +1,7 @@
 // backend/src/middleware/auth.middleware.ts
 import type { AppModule, RoleName } from "@prisma/client";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { assertBusinessLicenseActiveForOperationalRoles } from "../shared/business-license.js";
 import { loadModulesForRoles } from "../shared/role-modules.js";
 
 export const authGuard = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
@@ -22,6 +23,10 @@ export const authGuard = async (request: FastifyRequest, reply: FastifyReply): P
       businessId: payload.businessId ?? null,
       modules
     };
+
+    if (request.authUser.businessId) {
+      await assertBusinessLicenseActiveForOperationalRoles(request.authUser.businessId, request.authUser.roles);
+    }
   } catch {
     return reply.code(401).send({
       statusCode: 401,

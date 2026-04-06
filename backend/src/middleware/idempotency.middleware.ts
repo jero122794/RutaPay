@@ -63,6 +63,12 @@ export const paymentIdempotencyPreHandler = async (
 
     request.idempotencyRedisKey = redisKey;
   } catch {
-    // Redis unavailable: skip idempotency (fail open).
+    // Financial safety: if Redis is unavailable, fail closed to avoid duplicate payments.
+    reply.code(503).send({
+      statusCode: 503,
+      error: "Service Unavailable",
+      message:
+        "Servicio de idempotencia no disponible. Intente de nuevo en unos segundos para evitar pagos duplicados."
+    });
   }
 };

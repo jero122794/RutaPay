@@ -13,6 +13,7 @@ import {
   recordLoginFailureByIp,
   recordUserLoginFailure
 } from "../../shared/login-security.js";
+import { assertBusinessLicenseActiveForOperationalRoles, getBusinessLicenseStatus } from "../../shared/business-license.js";
 import { hashRefreshToken } from "../../shared/token-hash.js";
 import { loadModulesForRoles } from "../../shared/role-modules.js";
 import type { LoginInput, RegisterInput } from "./schema.js";
@@ -34,6 +35,10 @@ interface AuthUserPayload {
 interface AuthResponse {
   user: AuthUserPayload;
   tokens: AuthTokens;
+  licenseWarning?: {
+    endsAt: string;
+    daysRemaining: number;
+  };
 }
 
 interface JwtPayload {
@@ -235,8 +240,31 @@ export const login = async (
   await clearUserLoginFailures(user.id);
 
   const roles = await loadRolesByUserId(user.id);
+
+  if (user.businessId) {
+    await assertBusinessLicenseActiveForOperationalRoles(user.businessId, roles);
+  }
+
   const tokens = await createTokens(user, roles);
   const authUser = await buildAuthUserPayload(user, roles);
+
+  const isAdmin = roles.includes("ADMIN") && !roles.includes("SUPER_ADMIN");
+  if (isAdmin && user.businessId) {
+    const status = await getBusinessLicenseStatus(user.businessId);
+    if (status.hasLicense && status.endsAt && typeof status.daysRemaining === "number") {
+      if (status.daysRemaining <= 30 && status.daysRemaining > 0) {
+        return {
+          user: authUser,
+          tokens,
+          licenseWarning: {
+            endsAt: status.endsAt.toISOString(),
+            daysRemaining: status.daysRemaining
+          }
+        };
+      }
+    }
+  }
+
   return { user: authUser, tokens };
 };
 
@@ -290,6 +318,9 @@ export const refresh = async (token: string): Promise<{ accessToken: string; ref
   }
 
   const roles = await loadRolesByUserId(payload.sub);
+  if (user.businessId) {
+    await assertBusinessLicenseActiveForOperationalRoles(user.businessId, roles);
+  }
   const modules = await loadModulesForRoles(roles);
 
   const nextPayload: JwtPayload = {

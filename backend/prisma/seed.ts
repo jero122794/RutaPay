@@ -88,7 +88,9 @@ const run = async (): Promise<void> => {
     update: { name: "Negocio Demo" },
     create: {
       id: "seed-business-demo",
-      name: "Negocio Demo"
+      name: "Negocio Demo",
+      licenseStartsAt: new Date(),
+      licenseEndsAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
     }
   });
 

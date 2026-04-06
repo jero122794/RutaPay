@@ -7,6 +7,7 @@ import {
   businessMemberUserParamsSchema,
   createBusinessSchema,
   createFirstBusinessAdminSchema,
+  setBusinessLicenseSchema,
   updateBusinessSchema
 } from "./schema.js";
 import * as businessService from "./service.js";
@@ -53,6 +54,33 @@ export const updateBusinessController = async (
   const input = updateBusinessSchema.parse(request.body);
   const row = await businessService.updateBusiness(id, input);
   reply.send({ data: row, message: "Business updated." });
+};
+
+export const setBusinessLicenseController = async (
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> => {
+  const actor = request.authUser;
+  if (!actor) {
+    reply.code(401).send({ statusCode: 401, error: "Unauthorized", message: "Authentication required." });
+    return;
+  }
+
+  const { id } = businessIdParamsSchema.parse(request.params);
+  const input = setBusinessLicenseSchema.parse(request.body);
+  const row = await businessService.setBusinessLicense(id, input);
+
+  await writeAuditLog({
+    userId: actor.id,
+    action: "BUSINESS_LICENSE_SET",
+    resourceType: "business",
+    resourceId: id,
+    newValue: { licenseStartsAt: row.licenseStartsAt, licenseEndsAt: row.licenseEndsAt },
+    ip: clientIp(request),
+    userAgent: userAgentHeader(request)
+  });
+
+  reply.send({ data: row, message: "Business license updated." });
 };
 
 export const createFirstBusinessAdminController = async (
