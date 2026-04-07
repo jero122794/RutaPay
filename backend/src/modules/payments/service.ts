@@ -190,6 +190,7 @@ export const createPayment = async (
       for (let i = 0; i < schedules.length; i += 1) {
         const schedule = schedules[i];
         if (remaining <= 0) break;
+        if (!schedule) continue;
 
         // Money should be handled as integers. We round Decimal->number to avoid
         // tiny binary/representation differences during comparisons.
