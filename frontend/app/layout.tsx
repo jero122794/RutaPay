@@ -8,6 +8,7 @@ export const metadata: Metadata = {
   description: "Gestión de préstamos y rutas de cobro",
   manifest: "/manifest.json",
   icons: {
+    icon: "/favicon.ico",
     apple: "/icons/icon-192.png"
   }
 };
