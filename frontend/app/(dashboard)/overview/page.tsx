@@ -3,7 +3,16 @@
 
 import axios from "axios";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip
+} from "recharts";
 import { useMemo, useState } from "react";
 import api from "../../../lib/api";
 import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
@@ -13,6 +22,7 @@ import TablePagination from "../../../components/ui/TablePagination";
 import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../lib/page-size";
 import {
   getBogotaTodayKey,
+  formatBogotaDateFromString,
   toBogotaDayKey,
   toBogotaDayKeyFromDate
 } from "../../../lib/bogota";
@@ -34,6 +44,7 @@ interface RouteItem {
 
 interface LoanItem {
   id: string;
+  routeId: string;
   status: "ACTIVE" | "COMPLETED" | "DEFAULTED" | "RESTRUCTURED";
   totalAmount: number;
 }
@@ -41,6 +52,8 @@ interface LoanItem {
 interface PaymentItem {
   id: string;
   amount: number;
+  status?: "ACTIVE" | "REVERSED";
+  createdAt: string;
 }
 
 interface ListResponse<T> {
@@ -48,6 +61,15 @@ interface ListResponse<T> {
   total: number;
   page: number;
   limit: number;
+}
+
+interface AuditLogItem {
+  id: string;
+  createdAt: string;
+  actorName: string;
+  action: string;
+  resourceType: string;
+  resourceId: string | null;
 }
 
 interface StatCardProps {
@@ -63,13 +85,13 @@ const StatCard = ({ title, value, hint, tone = "default" }: StatCardProps): JSX.
       ? "border-l-4 border-secondary"
       : tone === "emerald"
         ? "border-l-4 border-tertiary"
-        : "border border-white/5";
+        : "border-l-4 border-emerald-400";
 
   return (
-    <article className={`rounded-2xl bg-surface-container p-5 ${toneClass}`}>
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface-variant">{title}</p>
-      <p className="mt-3 font-mono text-2xl font-bold leading-tight tracking-tight text-on-surface md:text-3xl">{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{hint}</p>
+    <article className={`rounded-xl bg-surface-container-high p-6 shadow-xl ${toneClass}`}>
+      <p className="font-manrope text-xs font-bold uppercase tracking-widest text-on-surface-variant">{title}</p>
+      <p className="mt-3 font-headline text-3xl font-black tracking-tight text-on-surface md:text-4xl">{value}</p>
+      <p className="mt-2 font-inter text-xs text-on-surface-variant">{hint}</p>
     </article>
   );
 };
@@ -77,6 +99,8 @@ const StatCard = ({ title, value, hint, tone = "default" }: StatCardProps): JSX.
 const OverviewPage = (): JSX.Element => {
   const [managerMetricsPage, setManagerMetricsPage] = useState(1);
   const [managerMetricsLimit, setManagerMetricsLimit] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditLimit, setAuditLimit] = useState<PageSize>(DEFAULT_PAGE_SIZE);
 
   const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const user = useAuthStore((state) => state.user);
@@ -106,6 +130,17 @@ const OverviewPage = (): JSX.Element => {
     queryKey: ["payments-overview"],
     queryFn: async (): Promise<ListResponse<PaymentItem>> => {
       const response = await api.get<ListResponse<PaymentItem>>("/payments");
+      return response.data;
+    },
+    enabled: hasAuthHydrated && isAdminView
+  });
+
+  const auditLogsQuery = useQuery({
+    queryKey: ["audit-logs", auditPage, auditLimit],
+    queryFn: async (): Promise<ListResponse<AuditLogItem>> => {
+      const response = await api.get<ListResponse<AuditLogItem>>("/audit-logs", {
+        params: { page: auditPage, limit: auditLimit }
+      });
       return response.data;
     },
     enabled: hasAuthHydrated && isAdminView
@@ -208,6 +243,9 @@ const OverviewPage = (): JSX.Element => {
     id: string;
     amount: number;
     createdAt: string | Date;
+    method: "CASH" | "TRANSFER";
+    status: "ACTIVE" | "REVERSED";
+    clientName: string;
   };
 
   type RouteBalanceResponse = {
@@ -225,6 +263,76 @@ const OverviewPage = (): JSX.Element => {
   const routeManagerScheduleItems = scheduleQueries.flatMap(
     (q) => (q.data?.data ?? []) as RouteManagerLoanScheduleItem[]
   );
+
+  const routeManagerPayments = routeManagerPaymentsQuery.data?.data ?? [];
+  const todayPaymentsForManager = useMemo(() => {
+    if (!isRouteManagerView) return [];
+    return routeManagerPayments
+      .filter((p) => p.status === "ACTIVE")
+      .filter((p) => {
+        const created = typeof p.createdAt === "string" ? p.createdAt : p.createdAt.toISOString();
+        return toBogotaDayKey(created) === todayKey;
+      });
+  }, [isRouteManagerView, routeManagerPayments, todayKey]);
+
+  const hourKeyBogota = (value: string | Date): number => {
+    const d = typeof value === "string" ? new Date(value) : value;
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Bogota",
+      hour: "2-digit",
+      hour12: false
+    }).formatToParts(d);
+    const h = parts.find((p) => p.type === "hour")?.value ?? "0";
+    const n = Number(h);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const collectionsByHourForManager = useMemo(() => {
+    if (!isRouteManagerView) return [];
+    const hours = Array.from({ length: 24 }, (_, i) => i);
+    const base: Array<{ hour: number; label: string; amount: number }> = hours.map((h) => ({
+      hour: h,
+      label: `${String(h).padStart(2, "0")}:00`,
+      amount: 0
+    }));
+    for (const p of todayPaymentsForManager) {
+      const h = hourKeyBogota(p.createdAt);
+      const row = base[h];
+      if (!row) continue;
+      row.amount += p.amount;
+    }
+    const hasAny = base.some((r) => r.amount > 0);
+    if (!hasAny) {
+      return base.slice(6, 20);
+    }
+    const first = Math.max(0, base.findIndex((r) => r.amount > 0) - 2);
+    const lastIdx = base.length - 1 - [...base].reverse().findIndex((r) => r.amount > 0);
+    const last = Math.min(base.length, lastIdx + 3);
+    return base.slice(first, last);
+  }, [isRouteManagerView, todayPaymentsForManager]);
+
+  const methodDonutForManager = useMemo(() => {
+    if (!isRouteManagerView) return { data: [] as Array<{ name: string; value: number; color: string }>, total: 0 };
+    const cash = todayPaymentsForManager.filter((p) => p.method === "CASH").reduce((s, p) => s + p.amount, 0);
+    const transfer = todayPaymentsForManager.filter((p) => p.method === "TRANSFER").reduce((s, p) => s + p.amount, 0);
+    const data = [
+      { name: "Efectivo", value: cash, color: "#69f6b8" },
+      { name: "Transferencia", value: transfer, color: "#699cff" }
+    ].filter((x) => x.value > 0);
+    const total = data.reduce((s, r) => s + r.value, 0);
+    return { data, total };
+  }, [isRouteManagerView, todayPaymentsForManager]);
+
+  const recentPaymentsForManager = useMemo(() => {
+    if (!isRouteManagerView) return [];
+    return [...todayPaymentsForManager]
+      .sort((a, b) => {
+        const ad = typeof a.createdAt === "string" ? new Date(a.createdAt).getTime() : a.createdAt.getTime();
+        const bd = typeof b.createdAt === "string" ? new Date(b.createdAt).getTime() : b.createdAt.getTime();
+        return bd - ad;
+      })
+      .slice(0, 6);
+  }, [isRouteManagerView, todayPaymentsForManager]);
 
   if (!hasAuthHydrated) {
     return (
@@ -330,59 +438,236 @@ const OverviewPage = (): JSX.Element => {
 
     return (
       <div className="space-y-8">
-        <section className="flex items-center justify-between">
-          <h1 className="font-headline text-3xl font-bold text-on-surface">Panel de Control</h1>
+        <section>
+          <h1 className="font-headline text-3xl font-extrabold tracking-tight text-on-surface">Vista operativa</h1>
+          <p className="mt-1 font-inter text-sm text-on-surface-variant">Resumen de tu ruta y cobros del día</p>
         </section>
 
         <section className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
-          <article className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary-container to-blue-800 p-6 shadow-lg">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/80">Saldo disponible</p>
-            <p className="mt-3 font-mono text-2xl font-bold leading-tight tracking-tight text-white md:text-3xl">{formatCOP(balance)}</p>
-            <p className="mt-2 text-xs text-white/80">Disponible en tesorería de tu ruta</p>
+          <article className="relative flex flex-col justify-between overflow-hidden rounded-xl border-l-4 border-emerald-400 bg-surface-container-high p-6 shadow-xl">
+            <div>
+              <p className="font-manrope text-xs font-bold uppercase tracking-widest text-emerald-400/90">Saldo de ruta</p>
+              <p className="mt-3 font-headline text-3xl font-black tracking-tight text-on-surface md:text-4xl">{formatCOP(balance)}</p>
+            </div>
+            <p className="mt-4 flex items-center gap-2 font-inter text-sm text-primary">
+              <span className="material-symbols-outlined text-base" aria-hidden>
+                trending_up
+              </span>
+              Disponible en tesorería
+            </p>
           </article>
           <StatCard title="Cobros de hoy" value={formatCOP(receivedTodayTotal)} hint="Cobros exitosos registrados" tone="cyan" />
           <StatCard title="Cuotas pendientes" value={String(dueTodayCount)} hint="Programadas para hoy" tone="emerald" />
-          <article className="rounded-2xl border border-error/20 bg-error-container/20 p-6">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-error">En mora</p>
-            <p className="mt-3 font-mono text-2xl font-bold leading-tight tracking-tight text-on-surface md:text-3xl">
-              {String(overdueMoraCount)}
+          <article className="flex flex-col justify-between rounded-xl border-l-4 border-tertiary bg-surface-container-high p-6 shadow-xl">
+            <div>
+              <p className="font-manrope text-xs font-bold uppercase tracking-widest text-tertiary">En mora</p>
+              <p className="mt-3 font-headline text-3xl font-black tracking-tight text-on-surface md:text-4xl">
+                {String(overdueMoraCount)}
+              </p>
+            </div>
+            <p className="mt-4 flex items-center gap-2 font-inter text-sm text-tertiary">
+              <span className="material-symbols-outlined text-base" aria-hidden>
+                warning
+              </span>
+              Cuotas vencidas sin pagar
             </p>
-            <p className="mt-2 text-xs text-slate-400">Cuotas con vencimiento anterior a hoy (no pagadas)</p>
           </article>
         </section>
 
-        <section className="overflow-hidden rounded-2xl border border-white/5 bg-surface-container">
-          <div className="border-b border-white/5 p-6">
-            <h2 className="font-headline text-2xl font-extrabold text-on-surface">Cobros de Hoy</h2>
-          </div>
-          <div className="rutapay-table-wrap rounded-none border-0 bg-transparent shadow-none">
-            <table className="rutapay-table">
-              <thead>
-                <tr className="bg-white/[0.02] text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
-                  <th className="px-6 py-4">Métrica</th>
-                  <th className="px-6 py-4">Valor</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {pagedManagerMetricsRows.map((row) => (
-                  <tr key={row.id} className="hover:bg-white/[0.02]">
-                    <td className="px-6 py-4 text-sm text-on-surface">{row.label}</td>
-                    <td className="px-6 py-4 font-mono text-sm font-bold text-on-surface">{row.value}</td>
-                  </tr>
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <article className="rounded-2xl border border-outline-variant/15 bg-surface-container-low p-6 shadow-2xl lg:col-span-2">
+            <div className="mb-6 flex flex-col gap-1">
+              <h2 className="font-headline text-xl font-extrabold text-on-surface">Recaudo de hoy</h2>
+              <p className="text-sm text-on-surface-variant">Tendencia por hora (America/Bogotá).</p>
+            </div>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={collectionsByHourForManager} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="rmCollectionsFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="rgba(105,246,184,0.45)" />
+                      <stop offset="100%" stopColor="rgba(105,246,184,0)" />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="rgba(64,72,93,0.25)" strokeDasharray="3 6" vertical={false} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "rgba(9,19,40,0.95)",
+                      border: "1px solid rgba(64,72,93,0.35)",
+                      borderRadius: 12,
+                      color: "#dee5ff",
+                      boxShadow: "0 16px 32px rgba(0,0,0,0.45)"
+                    }}
+                    labelStyle={{ color: "#dee5ff", fontWeight: 900 }}
+                    itemStyle={{ color: "#dee5ff", fontWeight: 700 }}
+                    labelFormatter={(label: unknown) => `Hora: ${String(label)}`}
+                    formatter={(value: unknown) => [formatCOP(Number(value)), "Recaudo"]}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="amount"
+                    name="Recaudo"
+                    stroke="rgba(105,246,184,0.9)"
+                    strokeWidth={2}
+                    fill="url(#rmCollectionsFill)"
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div className="rounded-xl border border-outline-variant/15 bg-surface-container-highest/30 p-5">
+                <h3 className="text-sm font-bold uppercase tracking-widest text-on-surface-variant">
+                  Distribución por método
+                </h3>
+                {methodDonutForManager.data.length === 0 ? (
+                  <p className="mt-4 text-sm text-on-surface-variant">Aún no hay recaudos hoy.</p>
+                ) : (
+                  <div className="mt-4 h-44">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <defs>
+                          <filter id="rmDonutGlow" x="-50%" y="-50%" width="200%" height="200%">
+                            <feDropShadow dx="0" dy="0" stdDeviation="6" floodColor="rgba(105,246,184,0.15)" />
+                          </filter>
+                        </defs>
+                        <Pie
+                          data={methodDonutForManager.data}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius={44}
+                          outerRadius={72}
+                          paddingAngle={3}
+                          cornerRadius={10}
+                          stroke="rgba(0,0,0,0)"
+                          isAnimationActive={false}
+                          filter="url(#rmDonutGlow)"
+                        >
+                          {methodDonutForManager.data.map((entry) => (
+                            <Cell key={entry.name} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{
+                            background: "rgba(9,19,40,0.95)",
+                            border: "1px solid rgba(64,72,93,0.35)",
+                            borderRadius: 12,
+                            color: "#dee5ff",
+                            boxShadow: "0 16px 32px rgba(0,0,0,0.45)"
+                          }}
+                          labelStyle={{ color: "#dee5ff", fontWeight: 900 }}
+                          itemStyle={{ color: "#dee5ff", fontWeight: 700 }}
+                          formatter={(value: unknown) => [formatCOP(Number(value)), "Total"]}
+                        />
+                        <text
+                          x="50%"
+                          y="48%"
+                          textAnchor="middle"
+                          dominantBaseline="central"
+                          fill="#dee5ff"
+                          style={{
+                            fontFamily: "var(--font-headline, Manrope), sans-serif",
+                            fontWeight: 900,
+                            fontSize: 16
+                          }}
+                        >
+                          {formatCOP(methodDonutForManager.total)}
+                        </text>
+                        <text
+                          x="50%"
+                          y="66%"
+                          textAnchor="middle"
+                          dominantBaseline="central"
+                          fill="#a3aac4"
+                          style={{
+                            fontFamily: "var(--font-body, Inter), sans-serif",
+                            fontWeight: 700,
+                            fontSize: 10,
+                            letterSpacing: "0.18em"
+                          }}
+                        >
+                          HOY
+                        </text>
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-outline-variant/15 bg-surface-container-highest/30 p-5">
+                <h3 className="text-sm font-bold uppercase tracking-widest text-on-surface-variant">
+                  Métricas rápidas
+                </h3>
+                <div className="mt-4">
+                  <div className="rutapay-table-wrap rounded-2xl border-0 bg-transparent shadow-none">
+                    <table className="rutapay-table rutapay-table--responsive">
+                      <thead>
+                        <tr>
+                          <th>Métrica</th>
+                          <th>Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pagedManagerMetricsRows.map((row) => (
+                          <tr key={row.id}>
+                            <td data-label="Métrica" className="text-on-surface">{row.label}</td>
+                            <td data-label="Valor" data-mono="true">{row.value}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <TablePagination
+                    page={managerMetricsPage}
+                    limit={managerMetricsLimit}
+                    total={managerMetricsRows.length}
+                    onPageChange={setManagerMetricsPage}
+                    onLimitChange={(next) => {
+                      setManagerMetricsLimit(next);
+                      setManagerMetricsPage(1);
+                    }}
+                    className="rutapay-table-footer border-0 pt-0"
+                  />
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <aside className="rounded-2xl border border-outline-variant/15 bg-surface-container-low p-6 shadow-2xl">
+            <div className="mb-6 flex items-center justify-between">
+              <h3 className="font-headline text-lg font-extrabold text-on-surface">Pagos recientes</h3>
+              <span className="text-xs font-bold uppercase tracking-widest text-primary">Hoy</span>
+            </div>
+
+            {recentPaymentsForManager.length === 0 ? (
+              <p className="text-sm text-on-surface-variant">Aún no hay pagos registrados hoy.</p>
+            ) : (
+              <div className="custom-scrollbar max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                {recentPaymentsForManager.map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between rounded-xl bg-surface-container-high/40 p-3 transition-colors hover:bg-surface-container-high/60"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-on-surface">{p.clientName}</p>
+                      <p className="text-xs text-on-surface-variant">
+                        {formatBogotaDateFromString(typeof p.createdAt === "string" ? p.createdAt : p.createdAt.toISOString())} •{" "}
+                        {p.method === "CASH" ? "Efectivo" : "Transferencia"}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-extrabold text-primary">+{formatCOP(p.amount)}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                        {p.status === "ACTIVE" ? "Activo" : "Reversado"}
+                      </p>
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
-          <TablePagination
-            page={managerMetricsPage}
-            limit={managerMetricsLimit}
-            total={managerMetricsRows.length}
-            onPageChange={setManagerMetricsPage}
-            onLimitChange={(next) => {
-              setManagerMetricsLimit(next);
-              setManagerMetricsPage(1);
-            }}
-          />
+              </div>
+            )}
+          </aside>
         </section>
       </div>
     );
@@ -431,7 +716,65 @@ const OverviewPage = (): JSX.Element => {
   const totalBalance = routes.reduce((acc, item) => acc + item.balance, 0);
   const activeLoans = loans.filter((item) => item.status === "ACTIVE").length;
   const streetMoney = loans.reduce((acc, item) => acc + item.totalAmount, 0);
-  const recoveredToday = payments.reduce((acc, item) => acc + item.amount, 0);
+  const monthKey = todayKey.slice(0, 7);
+  const recoveredMonth = payments
+    .filter((p) => (p.status ?? "ACTIVE") === "ACTIVE")
+    .filter((p) => toBogotaDayKey(p.createdAt).slice(0, 7) === monthKey)
+    .reduce((acc, item) => acc + item.amount, 0);
+
+  const delinquencyRatePct = (() => {
+    const total = loans.length;
+    if (total <= 0) return 0;
+    const defaulted = loans.filter((l) => l.status === "DEFAULTED").length;
+    return Math.round((defaulted / total) * 1000) / 10;
+  })();
+
+  const shiftMonthKey = (base: string, deltaMonths: number): string => {
+    const [yRaw, mRaw] = base.split("-");
+    const y = Number(yRaw);
+    const m = Number(mRaw);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return base;
+    const idx = (y * 12 + (m - 1)) + deltaMonths;
+    const ny = Math.floor(idx / 12);
+    const nm = (idx % 12 + 12) % 12;
+    const mm = String(nm + 1).padStart(2, "0");
+    return `${String(ny)}-${mm}`;
+  };
+
+  const recoveryTrend = (() => {
+    const months = [-5, -4, -3, -2, -1, 0].map((d) => shiftMonthKey(monthKey, d));
+    const byMonth: Record<string, number> = {};
+    for (const m of months) byMonth[m] = 0;
+    for (const p of payments) {
+      if ((p.status ?? "ACTIVE") !== "ACTIVE") continue;
+      const mk = toBogotaDayKey(p.createdAt).slice(0, 7);
+      if (byMonth[mk] !== undefined) {
+        byMonth[mk] += p.amount;
+      }
+    }
+    return months.map((mk) => {
+      const label = mk.split("-")[1] ?? mk;
+      return { monthKey: mk, label, amount: byMonth[mk] ?? 0 };
+    });
+  })();
+
+  const routeDistribution = (() => {
+    const byRoute: Record<string, number> = {};
+    for (const loan of loans) {
+      byRoute[loan.routeId] = (byRoute[loan.routeId] ?? 0) + loan.totalAmount;
+    }
+    const total = Object.values(byRoute).reduce((s, v) => s + v, 0);
+    const list = routes
+      .map((r) => ({
+        routeId: r.id,
+        name: r.name,
+        amount: byRoute[r.id] ?? 0,
+        pct: total > 0 ? Math.round(((byRoute[r.id] ?? 0) / total) * 100) : 0
+      }))
+      .filter((r) => r.amount > 0)
+      .sort((a, b) => b.amount - a.amount);
+    return { total, list };
+  })();
 
   const statusCounts = [
     { name: "Activos", value: loans.filter((item) => item.status === "ACTIVE").length, color: "#3b82f6" },
@@ -444,65 +787,229 @@ const OverviewPage = (): JSX.Element => {
     }
   ].filter((item) => item.value > 0);
 
+  const loansTotalForChart = statusCounts.reduce((acc, item) => acc + item.value, 0);
+
   return (
     <div className="space-y-8">
-      <section className="flex items-center justify-between">
-        <h1 className="font-headline text-3xl font-bold text-on-surface">Panel de Control</h1>
-      </section>
-
-      <section className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
-        <article className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary-container to-blue-800 p-6 shadow-lg">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/80">Cartera total</p>
-          <p className="mt-3 font-mono text-2xl font-bold leading-tight tracking-tight text-white md:text-3xl">{formatCOP(streetMoney)}</p>
-          <p className="mt-2 text-xs text-white/80">Saldo total de préstamos</p>
-        </article>
-        <StatCard title="Cobros del mes" value={formatCOP(recoveredToday)} hint="Pagos registrados" tone="cyan" />
-        <StatCard title="Rutas activas" value={String(routes.length)} hint="Total rutas registradas" tone="emerald" />
-        <article className="rounded-2xl border border-error/20 bg-error-container/20 p-6">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-error">En mora</p>
-          <p className="mt-3 font-mono text-2xl font-bold leading-tight tracking-tight text-on-surface md:text-3xl">
-            {String(adminOverdueMoraCount)}
-          </p>
-          <p className="mt-2 text-xs text-slate-400">Cuotas vencidas sin pagar (fecha anterior a hoy)</p>
-        </article>
-      </section>
-
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <article className="overflow-hidden rounded-2xl border border-white/5 bg-surface-container xl:col-span-2">
-          <div className="border-b border-white/5 p-6">
-            <h2 className="font-headline text-2xl font-extrabold text-on-surface">Distribución de cartera</h2>
+      <section className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-4xl font-headline font-extrabold tracking-tight text-on-surface">Resumen del sistema</h1>
+          <p className="mt-1 text-sm text-on-surface-variant">Rendimiento de cartera y logística de recaudo en tiempo real.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 rounded-xl border border-outline-variant/10 bg-surface-container-high px-4 py-2">
+            <span className="material-symbols-outlined text-sm text-tertiary" aria-hidden>
+              calendar_today
+            </span>
+            <span className="text-sm font-medium text-on-surface">Mes actual</span>
           </div>
-          <div className="p-6">
-            {statusCounts.length === 0 ? (
-              <p className="text-sm text-textSecondary">No hay préstamos para graficar.</p>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <article className="rounded-2xl border border-outline-variant/15 bg-surface-container-highest/40 p-6 shadow-2xl backdrop-blur-xl">
+          <div className="flex items-start justify-between">
+            <div className="rounded-xl bg-primary/10 p-3">
+              <span className="material-symbols-outlined text-primary" aria-hidden>
+                account_balance_wallet
+              </span>
+            </div>
+          </div>
+          <div className="mt-5">
+            <p className="text-sm font-medium text-on-surface-variant">Cartera Total</p>
+            <p className="mt-1 font-headline text-3xl font-extrabold text-primary">{formatCOP(streetMoney)}</p>
+          </div>
+        </article>
+
+        <article className="rounded-2xl border border-outline-variant/15 bg-surface-container-highest/40 p-6 shadow-2xl backdrop-blur-xl">
+          <div className="flex items-start justify-between">
+            <div className="rounded-xl bg-secondary/10 p-3">
+              <span className="material-symbols-outlined text-secondary" aria-hidden>
+                paid
+              </span>
+            </div>
+          </div>
+          <div className="mt-5">
+            <p className="text-sm font-medium text-on-surface-variant">Cobros del Mes</p>
+            <p className="mt-1 font-headline text-3xl font-extrabold text-on-surface">{formatCOP(recoveredMonth)}</p>
+          </div>
+        </article>
+
+        <article className="rounded-2xl border border-outline-variant/15 bg-surface-container-highest/40 p-6 shadow-2xl backdrop-blur-xl">
+          <div className="flex items-start justify-between">
+            <div className="rounded-xl bg-surface-container-highest p-3">
+              <span className="material-symbols-outlined text-on-surface" aria-hidden>
+                distance
+              </span>
+            </div>
+          </div>
+          <div className="mt-5">
+            <p className="text-sm font-medium text-on-surface-variant">Rutas Activas</p>
+            <p className="mt-1 font-headline text-3xl font-extrabold text-on-surface">{String(routes.length)}</p>
+          </div>
+        </article>
+
+        <article className="rounded-2xl border border-outline-variant/15 bg-surface-container-highest/40 p-6 shadow-2xl backdrop-blur-xl">
+          <div className="flex items-start justify-between">
+            <div className="rounded-xl bg-error/10 p-3">
+              <span className="material-symbols-outlined text-error" aria-hidden>
+                warning
+              </span>
+            </div>
+          </div>
+          <div className="mt-5">
+            <p className="text-sm font-medium text-on-surface-variant">En Mora</p>
+            <p className="mt-1 font-headline text-3xl font-extrabold text-error">{String(delinquencyRatePct)}%</p>
+          </div>
+        </article>
+      </section>
+
+      <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <article className="rounded-2xl border border-outline-variant/15 bg-surface-container-highest/40 p-6 shadow-2xl backdrop-blur-xl lg:col-span-2">
+          <div className="mb-6 flex items-center justify-between">
+            <h2 className="text-lg font-headline font-bold text-on-surface">Tendencia mensual de recaudo</h2>
+          </div>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={recoveryTrend} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="recoveryFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="rgba(105,246,184,0.45)" />
+                    <stop offset="100%" stopColor="rgba(105,246,184,0)" />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="rgba(64,72,93,0.25)" strokeDasharray="3 6" vertical={false} />
+                <Tooltip
+                  contentStyle={{
+                    background: "rgba(9,19,40,0.95)",
+                    border: "1px solid rgba(64,72,93,0.35)",
+                    borderRadius: 12,
+                    color: "#dee5ff",
+                    boxShadow: "0 16px 32px rgba(0,0,0,0.45)"
+                  }}
+                  labelStyle={{ color: "#dee5ff", fontWeight: 900 }}
+                  itemStyle={{ color: "#dee5ff", fontWeight: 700 }}
+                  formatter={(value: unknown) => [formatCOP(Number(value)), "Recaudo"]}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="amount"
+                  stroke="rgba(105,246,184,0.9)"
+                  strokeWidth={2}
+                  fill="url(#recoveryFill)"
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </article>
+
+        <article className="rounded-2xl border border-outline-variant/15 bg-surface-container-highest/40 p-6 shadow-2xl backdrop-blur-xl">
+          <h2 className="text-lg font-headline font-bold text-on-surface">Distribución por ruta</h2>
+          <div className="mt-6 space-y-5">
+            {routeDistribution.list.length === 0 ? (
+              <p className="text-sm text-on-surface-variant">No hay cartera por ruta para mostrar.</p>
             ) : (
-              <div className="h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={statusCounts} dataKey="value" nameKey="name" outerRadius={100} label>
-                      {statusCounts.map((entry) => (
-                        <Cell key={entry.name} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
+              routeDistribution.list.slice(0, 6).map((row, idx) => {
+                const tone =
+                  idx === 0 ? "bg-primary" : idx === 1 ? "bg-secondary" : idx === 2 ? "bg-tertiary" : "bg-outline-variant/60";
+                const toneText =
+                  idx === 0 ? "text-primary" : idx === 1 ? "text-secondary" : idx === 2 ? "text-tertiary" : "text-on-surface-variant";
+                return (
+                  <div key={row.routeId} className="space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-on-surface">{row.name}</span>
+                      <span className={`font-bold ${toneText}`}>{row.pct}%</span>
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-surface-container-highest">
+                      <div className={`h-full ${tone}`} style={{ width: `${Math.min(100, Math.max(0, row.pct))}%` }} />
+                    </div>
+                  </div>
+                );
+              })
             )}
           </div>
         </article>
+      </section>
 
-        <article className="rounded-2xl border border-white/5 bg-surface-container p-6">
-          <h2 className="font-headline text-xl font-extrabold text-on-surface">Resumen rápido</h2>
-          <ul className="mt-4 space-y-3 text-sm text-textSecondary">
-            <li>Total pagos registrados: <span className="font-mono text-on-surface">{payments.length}</span></li>
-            <li>Total recuperado: <span className="font-mono text-on-surface">{formatCOP(recoveredToday)}</span></li>
-            <li>Cartera total activa: <span className="font-mono text-on-surface">{formatCOP(streetMoney)}</span></li>
-            <li>Rutas con saldo: <span className="font-mono text-on-surface">{routes.filter((item) => item.balance > 0).length}</span></li>
-            <li>Saldo total rutas: <span className="font-mono text-on-surface">{formatCOP(totalBalance)}</span></li>
-            <li>Préstamos activos: <span className="font-mono text-on-surface">{activeLoans}</span></li>
-          </ul>
-        </article>
+      <section className="overflow-hidden rounded-2xl border border-outline-variant/15 bg-surface-container-highest/40 shadow-2xl backdrop-blur-xl">
+        <div className="flex items-center justify-between border-b border-outline-variant/10 px-6 py-5">
+          <div>
+            <h2 className="text-lg font-headline font-bold text-on-surface">Auditoría del sistema</h2>
+            <p className="mt-1 text-xs uppercase tracking-widest text-on-surface-variant">Acciones administrativas recientes</p>
+          </div>
+        </div>
+
+        <div className="rutapay-table-wrap rounded-none border-0 bg-transparent shadow-none">
+          <table className="rutapay-table rutapay-table--responsive">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Actor</th>
+                <th>Action</th>
+                <th>Resource</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {auditLogsQuery.isLoading ? (
+                <tr>
+                  <td colSpan={5} className="text-on-surface-variant">
+                    Cargando auditoría…
+                  </td>
+                </tr>
+              ) : auditLogsQuery.isError ? (
+                <tr>
+                  <td colSpan={5} className="text-error">
+                    {getErrorMessage(auditLogsQuery.error)}
+                  </td>
+                </tr>
+              ) : (auditLogsQuery.data?.data ?? []).length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="text-on-surface-variant">
+                    No hay eventos de auditoría.
+                  </td>
+                </tr>
+              ) : (
+                (auditLogsQuery.data?.data ?? []).map((row) => (
+                  <tr key={row.id}>
+                    <td data-label="Timestamp" className="text-xs text-on-surface-variant">
+                      {formatBogotaDateFromString(row.createdAt)}
+                    </td>
+                    <td data-label="Actor" className="text-on-surface">{row.actorName}</td>
+                    <td data-label="Acción" className="text-on-surface-variant">{row.action}</td>
+                    <td
+                      data-label="Recurso"
+                      data-mono="true"
+                    >{`${row.resourceType}${row.resourceId ? `#${row.resourceId.slice(0, 8)}` : ""}`}</td>
+                    <td data-label="Estado">
+                      <span className="rounded-md bg-primary/10 px-2 py-1 text-[10px] font-bold uppercase text-primary">
+                        Éxito
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {auditLogsQuery.data ? (
+          <div className="px-6 pb-6 pt-2">
+            <TablePagination
+              page={auditPage}
+              limit={auditLimit}
+              total={auditLogsQuery.data.total}
+              onPageChange={setAuditPage}
+              onLimitChange={(next) => {
+                setAuditLimit(next);
+                setAuditPage(1);
+              }}
+              className="rutapay-table-footer border-0 pt-0"
+            />
+          </div>
+        ) : null}
       </section>
     </div>
   );

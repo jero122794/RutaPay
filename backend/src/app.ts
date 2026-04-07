@@ -6,6 +6,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { authRouter } from "./modules/auth/router.js";
+import { auditLogsRouter } from "./modules/audit-logs/router.js";
 import { businessesRouter } from "./modules/businesses/router.js";
 import { clientsRouter } from "./modules/clients/router.js";
 import { loansRouter } from "./modules/loans/router.js";
@@ -117,6 +118,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       await scope.register(paymentsRouter, { prefix: "/payments" });
       await scope.register(treasuryRouter, { prefix: "/treasury" });
       await scope.register(notificationsRouter, { prefix: "/notifications" });
+      await scope.register(auditLogsRouter, { prefix: "/audit-logs" });
     },
     { prefix: "/api" }
   );

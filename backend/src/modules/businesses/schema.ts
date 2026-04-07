@@ -2,11 +2,12 @@
 import { z } from "zod";
 
 export const businessIdParamsSchema = z.object({
-  id: z.string().cuid()
+  // Business ids may be seeded as stable strings (e.g. "seed-business-demo"), not always cuid().
+  id: z.string().min(1)
 });
 
 export const businessMemberUserParamsSchema = z.object({
-  id: z.string().cuid(),
+  id: z.string().min(1),
   userId: z.string().cuid()
 });
 

@@ -33,3 +33,28 @@ export const computeLatePenaltyCOP = (
   }
   return interestInstallmentShareCOP;
 };
+
+/**
+ * Grace rule: if the borrower catches up an overdue installment on or before
+ * the next installment's due date (Bogotá calendar day), waive mora (0).
+ *
+ * This supports the business rule:
+ * - Weekly 4-installment loan
+ * - Misses installment #1 (becomes overdue)
+ * - Pays both #1 + #2 on installment #2 due date
+ * => mora for #1 is forgiven.
+ */
+export const computeLatePenaltyWithCatchUpGraceCOP = (
+  dueDateUtc: Date,
+  paymentDateUtc: Date,
+  interestInstallmentShareCOP: number,
+  nextInstallmentDueDateUtc: Date | null
+): number => {
+  if (nextInstallmentDueDateUtc) {
+    const daysFromPaymentToNextDue = bogotaCalendarDaysBetween(paymentDateUtc, nextInstallmentDueDateUtc);
+    if (daysFromPaymentToNextDue >= 0) {
+      return 0;
+    }
+  }
+  return computeLatePenaltyCOP(dueDateUtc, paymentDateUtc, interestInstallmentShareCOP);
+};

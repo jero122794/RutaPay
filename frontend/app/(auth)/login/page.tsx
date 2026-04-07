@@ -40,6 +40,7 @@ const LoginPage = (): JSX.Element => {
   const router = useRouter();
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [licenseWarning, setLicenseWarning] = useState<{ endsAt: string; daysRemaining: number } | null>(
     null
   );
@@ -89,75 +90,193 @@ const LoginPage = (): JSX.Element => {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-bg px-4">
-      <div className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-xl">
-        <h1 className="mb-2 text-2xl font-semibold text-textPrimary">Iniciar sesión</h1>
-        <p className="mb-6 text-sm text-textSecondary">Accede a tu cuenta para gestionar tu ruta.</p>
+    <div className="relative flex min-h-screen overflow-hidden bg-surface font-body text-on-surface">
+      <section className="relative hidden w-1/2 flex-col justify-between overflow-hidden p-16 lg:flex">
+        <div className="absolute inset-0 z-0">
+          <img
+            alt=""
+            className="h-full w-full object-cover opacity-60"
+            src="https://lh3.googleusercontent.com/aida-public/AB6AXuDFniqbKhO9ZZYLPSMaDpTAzVsGU36O469ra6gQ-pBd56HqFHLE6XgvwtuhyyjJ-8aNlQCPTQrENyN16Gv0aTzUZUqIvCxNpYphHic0cNuaD6SlPfFAWRBnzMXH8OM72vs6Uvk-WEEnnR6e9ZSA5IazlsMn2DapKztE5uuG6oVkG62UxZ16eSjJuRrgb02p4myTkzr2r7jWisQr61O7uLWy59GgBYEfUeykeXKPkhIJY6OxYfnLdbT9C3gpG0nkIKk_I2wplPDZ8lo"
+          />
+          <div className="absolute inset-0 bg-gradient-to-tr from-surface via-transparent to-primary/10" />
+        </div>
 
-        <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)}>
+        <div className="relative z-10">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center">
+              <img
+                src="/brand/ruut_logo_1.svg"
+                alt="Ruut"
+                className="h-full w-full object-contain"
+              />
+            </div>
+            <h1 className="font-headline text-2xl font-black tracking-tighter text-primary">Ruut</h1>
+          </div>
+        </div>
+
+        <div className="relative z-10 max-w-lg">
+          <h2 className="mb-6 font-headline text-4xl font-extrabold leading-tight text-on-surface xl:text-5xl">
+            Gestión de rutas con <span className="text-primary">precisión</span> absoluta.
+          </h2>
+          <p className="text-lg leading-relaxed text-on-surface-variant">
+            Diseñado para el mercado colombiano. Control de cobros, reportes en tiempo real y seguridad para tu
+            microcrédito en un solo lugar.
+          </p>
+        </div>
+
+        <div className="relative z-10 flex flex-wrap gap-10">
           <div>
-            <label htmlFor="identifier" className="mb-1 block text-sm text-textSecondary">
-              Cédula (o correo)
-            </label>
-            <input
-              id="identifier"
-              type="text"
-              placeholder="Ej: 1032456789"
-              className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-              {...form.register("identifier")}
-            />
-            <p className="mt-1 text-xs text-danger">{form.formState.errors.identifier?.message}</p>
+            <div className="font-headline text-3xl font-bold text-primary">100%</div>
+            <div className="text-sm font-medium tracking-wide text-on-surface-variant">FIABILIDAD</div>
+          </div>
+          <div>
+            <div className="font-headline text-3xl font-bold text-primary">Cifrado</div>
+            <div className="text-sm font-medium tracking-wide text-on-surface-variant">DATOS PROTEGIDOS</div>
+          </div>
+        </div>
+      </section>
+
+      <main className="flex w-full flex-col items-center justify-center bg-surface p-6 sm:p-8 lg:w-1/2">
+        <div className="auth-form w-full max-w-md space-y-10">
+          <div className="text-center lg:text-left">
+            <h3 className="mb-2 font-headline text-3xl font-bold text-on-surface">Iniciar sesión</h3>
+            <p className="font-medium text-on-surface-variant">Ingresa tu cédula o correo y contraseña para acceder.</p>
           </div>
 
-          <div>
-            <label htmlFor="password" className="mb-1 block text-sm text-textSecondary">
-              Contraseña
-            </label>
-            <input
-              id="password"
-              type="password"
-              className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-              {...form.register("password")}
-            />
-            <p className="mt-1 text-xs text-danger">{form.formState.errors.password?.message}</p>
+          <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+            <div className="space-y-2">
+              <label
+                className="ml-1 font-headline text-xs font-bold uppercase tracking-widest text-on-surface-variant"
+                htmlFor="identifier"
+              >
+                Correo o cédula
+              </label>
+              <div className="relative">
+                <div className="pointer-events-none absolute inset-y-0 left-4 flex items-center">
+                  <span className="material-symbols-outlined text-lg text-outline" aria-hidden>
+                    mail
+                  </span>
+                </div>
+                <input
+                  id="identifier"
+                  type="text"
+                  autoComplete="username"
+                  placeholder="nombre@empresa.com o documento"
+                  className="auth-field-inset h-14 w-full rounded-xl border-none pl-12 pr-4 text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary/40"
+                  {...form.register("identifier")}
+                />
+              </div>
+              <p className="text-xs text-error">{form.formState.errors.identifier?.message}</p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between px-1">
+                <label
+                  className="font-headline text-xs font-bold uppercase tracking-widest text-on-surface-variant"
+                  htmlFor="password"
+                >
+                  Contraseña
+                </label>
+                <span
+                  className="cursor-not-allowed font-label text-xs font-semibold text-primary opacity-70"
+                  title="Próximamente"
+                >
+                  ¿Olvidaste tu contraseña?
+                </span>
+              </div>
+              <div className="relative">
+                <div className="pointer-events-none absolute inset-y-0 left-4 flex items-center">
+                  <span className="material-symbols-outlined text-lg text-outline" aria-hidden>
+                    lock
+                  </span>
+                </div>
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  className="auth-field-inset h-14 w-full rounded-xl border-none pl-12 pr-14 text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary/40"
+                  {...form.register("password")}
+                />
+                <button
+                  type="button"
+                  className="absolute inset-y-0 right-4 flex items-center text-outline hover:text-on-surface"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                >
+                  <span className="material-symbols-outlined text-lg" aria-hidden>
+                    {showPassword ? "visibility_off" : "visibility"}
+                  </span>
+                </button>
+              </div>
+              <p className="text-xs text-error">{form.formState.errors.password?.message}</p>
+            </div>
+
+            {error ? <p className="text-sm text-error">{error}</p> : null}
+            {success ? <p className="text-sm text-primary">{success}</p> : null}
+
+            <button
+              type="submit"
+              disabled={!form.formState.isValid || form.formState.isSubmitting}
+              className="auth-tonal-shadow group flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-primary-container font-headline text-lg font-bold text-on-primary transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:hover:scale-100"
+            >
+              {form.formState.isSubmitting ? "Ingresando…" : "Iniciar sesión"}
+              <span
+                className="material-symbols-outlined transition-transform group-hover:translate-x-1"
+                aria-hidden
+              >
+                arrow_forward
+              </span>
+            </button>
+          </form>
+
+          <div className="pt-2 text-center">
+            <p className="text-sm font-medium text-on-surface-variant">
+              ¿No tienes una cuenta?{" "}
+              <Link href="/register" className="ml-1 font-bold text-primary underline-offset-4 hover:underline">
+                Regístrate
+              </Link>
+            </p>
           </div>
+        </div>
 
-          {error ? <p className="text-sm text-danger">{error}</p> : null}
-          {success ? <p className="text-sm text-success">{success}</p> : null}
+        <footer className="mt-auto flex w-full max-w-md flex-col items-center gap-4 pt-12 pb-6 lg:pb-8">
+          <div className="flex flex-wrap items-center justify-center gap-6">
+            <span className="font-label text-xs font-medium text-outline">Términos</span>
+            <span className="font-label text-xs font-medium text-outline">Privacidad</span>
+            <span className="font-label text-xs font-medium text-outline">Legal</span>
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-outline-variant">
+            © {new Date().getFullYear()} Ruut
+          </span>
+        </footer>
+      </main>
 
-          <button
-            type="submit"
-            disabled={!form.formState.isValid || form.formState.isSubmitting}
-            className="w-full rounded-md bg-primary px-4 py-2 font-medium text-white disabled:opacity-50"
-          >
-            {form.formState.isSubmitting ? "Ingresando..." : "Ingresar"}
-          </button>
-        </form>
-
-        <p className="mt-4 text-sm text-textSecondary">
-          ¿No tienes cuenta?{" "}
-          <Link href="/register" className="text-primary hover:underline">
-            Regístrate
-          </Link>
-        </p>
+      <div
+        className="pointer-events-none fixed inset-0 z-[5] opacity-[0.03] mix-blend-overlay contrast-150"
+        aria-hidden
+      >
+        <svg className="h-full w-full" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+          <filter id="noiseFilterLogin">
+            <feTurbulence baseFrequency="0.65" numOctaves="3" stitchTiles="stitch" type="fractalNoise" />
+          </filter>
+          <rect width="100%" height="100%" filter="url(#noiseFilterLogin)" />
+        </svg>
       </div>
 
       {licenseWarning ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-2xl">
-            <h2 className="text-lg font-semibold text-textPrimary">Tu licencia está por vencer</h2>
-            <p className="mt-2 text-sm text-textSecondary">
-              Te quedan <span className="font-semibold text-textPrimary">{licenseWarning.daysRemaining}</span>{" "}
-              días de licencia. Vence el{" "}
-              <span className="font-semibold text-textPrimary">
-                {licenseWarning.endsAt.slice(0, 10)}
-              </span>
-              .
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-outline-variant/20 bg-surface-container-high p-6 shadow-2xl">
+            <h2 className="font-headline text-lg font-semibold text-on-surface">Tu licencia está por vencer</h2>
+            <p className="mt-2 text-sm text-on-surface-variant">
+              Te quedan{" "}
+              <span className="font-semibold text-on-surface">{licenseWarning.daysRemaining}</span> días de licencia.
+              Vence el <span className="font-semibold text-on-surface">{licenseWarning.endsAt.slice(0, 10)}</span>.
             </p>
-            <div className="mt-4 flex justify-end gap-2">
+            <div className="mt-6 flex justify-end">
               <button
                 type="button"
-                className="rounded-md border border-border bg-bg px-4 py-2 text-sm font-medium text-textPrimary"
+                className="rounded-xl bg-primary px-5 py-2.5 font-label text-sm font-bold text-on-primary"
                 onClick={() => {
                   setLicenseWarning(null);
                   if (shouldRedirectAfterWarning) {
@@ -171,7 +290,7 @@ const LoginPage = (): JSX.Element => {
           </div>
         </div>
       ) : null}
-    </main>
+    </div>
   );
 };
 

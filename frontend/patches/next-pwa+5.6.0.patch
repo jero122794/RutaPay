@@ -1,0 +1,17 @@
+diff --git a/node_modules/next-pwa/index.js b/node_modules/next-pwa/index.js
+index cc93668..d2d8840 100644
+--- a/node_modules/next-pwa/index.js
++++ b/node_modules/next-pwa/index.js
+@@ -93,7 +93,11 @@ module.exports =
+         const entry = config.entry
+         config.entry = () =>
+           entry().then(entries => {
+-            if (entries['main.js'] && !entries['main.js'].includes(registerJs)) {
++            if (
++              !options.isServer &&
++              entries['main.js'] &&
++              !entries['main.js'].includes(registerJs)
++            ) {
+               entries['main.js'].unshift(registerJs)
+             }
+             return entries

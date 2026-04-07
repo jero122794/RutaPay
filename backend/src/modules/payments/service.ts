@@ -1,7 +1,11 @@
 // backend/src/modules/payments/service.ts
 import type { Prisma } from "@prisma/client";
 import { assertLoanAccessForActor } from "../../shared/loan-ownership.js";
-import { computeLatePenaltyCOP, interestSharePerInstallmentCOP } from "../../shared/late-penalty.js";
+import {
+  computeLatePenaltyWithCatchUpGraceCOP,
+  computeLatePenaltyCOP,
+  interestSharePerInstallmentCOP
+} from "../../shared/late-penalty.js";
 import { sanitizePlainText } from "../../shared/sanitize.js";
 import type { PaginationQuery } from "../../shared/pagination.schema.js";
 import { prismaPaginationBounds } from "../../shared/pagination.schema.js";
@@ -140,8 +144,7 @@ export const createPayment = async (
       const [schedules, loanForPenalty] = await Promise.all([
         tx.paymentSchedule.findMany({
           where: {
-            loanId: input.loanId,
-            installmentNumber: { gte: startSchedule.installmentNumber }
+            loanId: input.loanId
           },
           orderBy: { installmentNumber: "asc" }
         }),
@@ -161,8 +164,9 @@ export const createPayment = async (
       );
       const paymentNow = new Date();
 
-      // Distribute payment amount from the selected installment forward.
-      // This allows a "total credit" payment to automatically settle future installments.
+      // Distribute payment from the oldest outstanding installment first (FIFO),
+      // regardless of which installment was selected in the UI.
+      // This prevents losing mora when an earlier installment is overdue but the collector selects a later one.
       let remaining = input.amount;
       let lastCreatedPayment: {
         id: string;
@@ -183,14 +187,21 @@ export const createPayment = async (
         createdAt: Date;
       } | null = null;
 
-      for (const schedule of schedules) {
+      for (let i = 0; i < schedules.length; i += 1) {
+        const schedule = schedules[i];
         if (remaining <= 0) break;
 
         // Money should be handled as integers. We round Decimal->number to avoid
         // tiny binary/representation differences during comparisons.
         const targetAmountNumber = Math.round(decimalToNumber(schedule.amount));
         const currentPaidAmountNumber = Math.round(decimalToNumber(schedule.paidAmount));
-        const latePenalty = computeLatePenaltyCOP(schedule.dueDate, paymentNow, interestShareCOP);
+        const nextDueDate = schedules[i + 1]?.dueDate ?? null;
+        const latePenalty = computeLatePenaltyWithCatchUpGraceCOP(
+          schedule.dueDate,
+          paymentNow,
+          interestShareCOP,
+          nextDueDate
+        );
         const totalDueNumber = targetAmountNumber + latePenalty;
         const outstanding = totalDueNumber - currentPaidAmountNumber;
 
@@ -381,10 +392,18 @@ export const reversePayment = async (
       Math.round(decimalToNumber(loanForPenalty.totalInterest)),
       loanForPenalty.installmentCount
     );
-    const latePenaltyAtPayment = computeLatePenaltyCOP(
+    const nextSchedule = await tx.paymentSchedule.findFirst({
+      where: {
+        loanId: payment.loanId,
+        installmentNumber: schedule.installmentNumber + 1
+      },
+      select: { dueDate: true }
+    });
+    const latePenaltyAtPayment = computeLatePenaltyWithCatchUpGraceCOP(
       schedule.dueDate,
       payment.createdAt,
-      interestShareCOP
+      interestShareCOP,
+      nextSchedule?.dueDate ?? null
     );
 
     const currentPaid = Math.round(decimalToNumber(schedule.paidAmount));

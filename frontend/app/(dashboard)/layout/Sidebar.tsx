@@ -12,8 +12,8 @@ import { NavIcon } from "./nav-icons";
 import { filterNavByModules, isNavItemActive, navItemsByRole, type NavItem } from "./nav-items";
 
 interface SidebarProps {
-  isTabletExpanded: boolean;
-  onCloseTablet: () => void;
+  open: boolean;
+  onClose: () => void;
 }
 
 interface NotificationsResponse {
@@ -28,7 +28,20 @@ interface NotificationsResponse {
   total: number;
 }
 
-const Sidebar = ({ isTabletExpanded, onCloseTablet }: SidebarProps): JSX.Element => {
+const roleSubtitle = (role: UserRole): string => {
+  switch (role) {
+    case "SUPER_ADMIN":
+      return "Super admin";
+    case "ADMIN":
+      return "Administrador";
+    case "ROUTE_MANAGER":
+      return "Encargado de ruta";
+    default:
+      return "Cliente";
+  }
+};
+
+const Sidebar = ({ open, onClose }: SidebarProps): JSX.Element => {
   const pathname = usePathname();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -66,202 +79,150 @@ const Sidebar = ({ isTabletExpanded, onCloseTablet }: SidebarProps): JSX.Element
       queryClient.clear();
       clearUser();
       router.push("/login");
+      onClose();
     })();
   };
-
-  const [tabletHoverLock, setTabletHoverLock] = useState(false);
 
   const [hasMounted, setHasMounted] = useState(false);
   useEffect(() => {
     setHasMounted(true);
   }, []);
 
-  const expanded = isTabletExpanded || tabletHoverLock;
+  const showPaymentsCta = role === "ROUTE_MANAGER" || role === "ADMIN" || role === "SUPER_ADMIN";
 
   return (
     <>
-      {/* Overlay only in tablet to avoid covering desktop content */}
-      {expanded ? (
-        <div
-          className="fixed inset-0 z-20 hidden bg-background/70 md:block lg:hidden"
-          role="presentation"
-          onClick={() => {
-            setTabletHoverLock(false);
-            onCloseTablet();
-          }}
+      {/* Tablet overlay */}
+      <div
+        className={[
+          "fixed inset-0 z-50 hidden md:block lg:hidden",
+          open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+          "transition-opacity"
+        ].join(" ")}
+        aria-hidden={!open}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          aria-label="Cerrar menú"
         />
-      ) : null}
+      </div>
 
       <aside
         className={[
-          "hidden md:flex",
-          "flex-col border-r border-white/5 bg-[#0a0f1e]",
-          "z-30",
-          "transition-[width,transform] duration-200 ease-out",
-          expanded ? "md:w-60" : "md:w-16",
-          "lg:w-60",
-          "md:relative lg:static",
-          "translate-x-0"
+          "fixed left-0 top-0 z-[60] h-screen w-64 flex-col",
+          "border-r-0 bg-background/75 py-6 pl-4 pr-3 backdrop-blur-xl",
+          "shadow-[0_12px_32px_rgba(0,0,0,0.4),0_4px_8px_rgba(105,246,184,0.04)]",
+          "hidden",
+          "md:flex lg:flex",
+          "md:translate-x-[-105%] md:transition-transform md:duration-200 md:ease-out",
+          open ? "md:translate-x-0" : "",
+          "lg:translate-x-0"
         ].join(" ")}
-        onMouseEnter={() => {
-          // Only expand via hover when the sidebar is not locked by click.
-          if (!tabletHoverLock) setTabletHoverLock(true);
-        }}
-        onMouseLeave={() => {
-          // Keep it open if it's already expanded via click (prop).
-          if (!isTabletExpanded) setTabletHoverLock(false);
-        }}
       >
-        <div className="flex items-center justify-between px-4 py-4">
-          <div className="flex items-center gap-3">
-            <div
-              className={`min-w-0 overflow-hidden transition-opacity duration-150 ${expanded ? "opacity-100" : "opacity-0"} lg:opacity-100`}
-            >
-              <p className="truncate font-headline text-[34px] font-bold tracking-tight text-blue-500">RutaPay</p>
-            </div>
+        <div className="mb-10 flex items-center gap-3 px-2">
+          <div className="flex h-10 w-10 items-center justify-center">
+            <img src="/brand/ruut_logo_1.svg" alt="Ruut" className="h-full w-full object-contain" />
           </div>
-        </div>
+          <div className="min-w-0">
+            <h1 className="font-headline text-2xl font-black tracking-tighter text-emerald-400">Ruut</h1>
+            <p className="min-h-[1rem] font-inter text-xs text-on-surface-variant">
+              {hasMounted ? roleSubtitle(role) : "\u00a0"}
+            </p>
+          </div>
 
-        <div className="px-4 pb-4">
-          <p
-            className={`mb-3 text-xs uppercase tracking-wider text-textSecondary transition-opacity duration-150 ${expanded ? "opacity-100" : "opacity-0"} lg:opacity-100`}
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-xl text-on-surface-variant hover:bg-white/5 hover:text-emerald-300 lg:hidden"
+            aria-label="Cerrar menú"
           >
-            Navegación
-          </p>
+            <span className="material-symbols-outlined text-[22px] leading-none" aria-hidden>
+              close
+            </span>
+          </button>
         </div>
 
-        <nav className="flex-1 px-2">
-          <ul className="space-y-1">
-            {!hasMounted
-              ? Array.from({ length: 8 }).map((_, i) => (
-                  <li key={`sidebar-nav-skel-${i}`}>
-                    <div
-                      className={[
-                        "group flex items-center gap-3 rounded-lg px-3 py-3",
-                        "min-h-[44px]",
-                        expanded ? "justify-start" : "justify-center",
-                        "lg:justify-start"
-                      ].join(" ")}
-                      aria-hidden
-                    >
-                      <span className="h-5 w-5 shrink-0 rounded bg-slate-700/40" />
-                      <span
-                        className={[
-                          "h-4 max-w-[140px] flex-1 rounded bg-slate-700/30",
-                          expanded ? "opacity-100" : "opacity-0",
-                          "lg:opacity-100"
-                        ].join(" ")}
-                      />
-                    </div>
-                  </li>
-                ))
-              : navItems.map((item) => {
-                  const active = isNavItemActive(pathname, item.href);
-                  const showBadge = item.icon === "alerts";
-                  return (
-                    <li key={item.href}>
-                      <Link
-                        href={item.href}
-                        onClick={() => {
-                          // Close overlay on navigation (tablet).
-                          setTabletHoverLock(false);
-                          onCloseTablet();
-                        }}
-                        className={[
-                          "group flex items-center gap-3 rounded-lg px-3 py-3",
-                          "min-h-[44px]",
-                          "transition-colors duration-150",
-                          active
-                            ? "bg-primary/10 text-primary border-r-2 border-primary"
-                            : "text-slate-400 hover:bg-white/5 hover:text-on-surface",
-                          expanded ? "justify-start" : "justify-center",
-                          "lg:justify-start"
-                        ].join(" ")}
-                      >
-                        <span className={active ? "text-primary" : "text-slate-400"}>
-                          <NavIcon icon={item.icon} />
-                        </span>
+        <p className="mb-3 px-2 text-xs uppercase tracking-wider text-on-surface-variant">Navegación</p>
 
-                        <span
-                          className={[
-                            "min-w-0 overflow-hidden whitespace-nowrap transition-opacity duration-150",
-                            expanded ? "opacity-100" : "opacity-0",
-                            "lg:opacity-100"
-                          ].join(" ")}
-                        >
-                          <span className="text-sm font-medium">{item.label}</span>
-                          {showBadge ? (
-                            <span className="ml-2 inline-flex items-center justify-center rounded-full bg-error/20 px-2 py-0.5 text-[11px] font-semibold text-error">
-                              {unreadCount}
-                            </span>
-                          ) : null}
-                        </span>
-                      </Link>
-                    </li>
-                  );
-                })}
-          </ul>
+        <nav className="flex-1 space-y-1 overflow-y-auto hide-scrollbar pr-1">
+          {!hasMounted
+            ? Array.from({ length: 8 }).map((_, i) => (
+                <div key={`sidebar-nav-skel-${i}`} className="flex items-center gap-3 rounded-xl px-4 py-3">
+                  <span className="h-6 w-6 rounded bg-white/10" />
+                  <span className="h-4 flex-1 rounded bg-white/[0.08]" />
+                </div>
+              ))
+            : navItems.map((item) => {
+                const active = isNavItemActive(pathname, item.href);
+                const showBadge = item.icon === "alerts";
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => onClose()}
+                    className={[
+                      "flex min-h-[44px] items-center gap-3 rounded-xl px-4 py-3 font-inter transition-all duration-200",
+                      active
+                        ? "border-r-4 border-emerald-400 bg-emerald-400/10 font-bold text-emerald-400"
+                        : "text-on-surface-variant hover:bg-white/[0.06] hover:text-emerald-300"
+                    ].join(" ")}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <NavIcon icon={item.icon} filled={active} className="text-[22px] leading-none" />
+                    <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
+                    {showBadge && unreadCount > 0 ? (
+                      <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-error/25 px-1.5 text-[10px] font-bold text-error">
+                        {unreadCount > 9 ? "9+" : unreadCount}
+                      </span>
+                    ) : null}
+                  </Link>
+                );
+              })}
         </nav>
 
-        <div className="mt-auto border-t border-white/5 p-4">
-          {!hasMounted ? (
-            <div aria-hidden>
-              <div className={`flex items-center gap-3 ${expanded ? "justify-start" : "justify-center"} lg:justify-start`}>
-                <div className="h-10 w-10 shrink-0 rounded-full bg-slate-700/40" />
-                <div
-                  className={`min-w-0 flex-1 space-y-2 transition-opacity duration-150 ${expanded ? "opacity-100" : "opacity-0"} lg:opacity-100`}
-                >
-                  <div className="h-4 max-w-[160px] rounded bg-slate-700/30" />
-                  <div className="h-3 max-w-[100px] rounded bg-slate-700/30" />
-                </div>
-              </div>
-              <div
-                className={`mt-3 h-10 rounded-md bg-slate-700/20 ${expanded ? "opacity-100" : "opacity-0"} transition-opacity duration-150 lg:opacity-100`}
-              />
-            </div>
-          ) : (
-            <>
-              <div className={`flex items-center gap-3 ${expanded ? "justify-start" : "justify-center"} lg:justify-start`}>
-                <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-primary-container bg-surface-2">
-                  <span className="text-sm font-semibold text-textPrimary">
-                    {(user?.name ?? "U")
-                      .split(" ")
-                      .filter(Boolean)
-                      .slice(0, 2)
-                      .map((p) => p[0]?.toUpperCase())
-                      .join("") || "U"}
-                  </span>
-                </div>
+        <div className="mt-4 space-y-3 border-t border-outline-variant/20 pt-4">
+          {hasMounted && showPaymentsCta ? (
+            <Link
+              href="/payments"
+              onClick={() => onClose()}
+              className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-primary-container py-3.5 font-bold text-on-primary shadow-lg shadow-primary/10 transition-all hover:opacity-90 active:scale-[0.98]"
+            >
+              <span className="material-symbols-outlined text-[22px] leading-none" aria-hidden>
+                add_circle
+              </span>
+              Nuevo cobro
+            </Link>
+          ) : null}
 
-                <div
-                  className={`min-w-0 overflow-hidden transition-opacity duration-150 ${expanded ? "opacity-100" : "opacity-0"} lg:opacity-100`}
-                >
-                  <p className="truncate text-sm font-semibold">{user?.name ?? "—"}</p>
-                  <p className="truncate text-[10px] uppercase tracking-wider text-slate-500">
-                    {role === "ROUTE_MANAGER"
-                      ? "Encargado de Ruta"
-                      : role === "SUPER_ADMIN"
-                        ? "Super Administrador"
-                        : role === "ADMIN"
-                          ? "Administrador"
-                          : "Cliente"}
+          {hasMounted ? (
+            <>
+              <div className="flex items-center gap-3 px-2">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-surface-container-high text-sm font-bold text-on-surface">
+                  {(user?.name ?? "U")
+                    .split(" ")
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .map((p) => p[0]?.toUpperCase())
+                    .join("") || "U"}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold text-on-surface">{user?.name ?? "—"}</p>
+                  <p className="min-h-[0.875rem] truncate text-[10px] uppercase tracking-wider text-on-surface-variant">
+                    {hasMounted ? roleSubtitle(role) : "\u00a0"}
                   </p>
                 </div>
               </div>
-
-              <div
-                className={`mt-3 ${expanded ? "opacity-100" : "opacity-0"} transition-opacity duration-150 lg:opacity-100`}
+              <button
+                type="button"
+                onClick={onLogout}
+                className="w-full rounded-xl border border-outline-variant/30 py-2.5 text-sm font-semibold text-on-surface-variant transition-colors hover:border-emerald-400/40 hover:bg-emerald-400/5 hover:text-emerald-300"
               >
-                <button
-                  type="button"
-                  onClick={onLogout}
-                  className="flex w-full items-center justify-center rounded-md bg-white/5 px-3 py-2 text-sm font-medium text-on-surface hover:bg-white/10"
-                >
-                  Cerrar sesión
-                </button>
-              </div>
+                Cerrar sesión
+              </button>
             </>
-          )}
+          ) : null}
         </div>
       </aside>
     </>
@@ -269,4 +230,3 @@ const Sidebar = ({ isTabletExpanded, onCloseTablet }: SidebarProps): JSX.Element
 };
 
 export default Sidebar;
-

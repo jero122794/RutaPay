@@ -1,5 +1,6 @@
 // frontend/lib/effective-roles.ts
 import type { AppModuleKey, UserRole } from "../store/authStore";
+import { useAuthStore } from "../store/authStore";
 
 const ROLE_PRIORITY: UserRole[] = ["SUPER_ADMIN", "ADMIN", "ROUTE_MANAGER", "CLIENT"];
 
@@ -53,10 +54,15 @@ export const parseRolesFromStoredAccessToken = (): UserRole[] => {
 /**
  * Merges persisted user.roles with JWT payload roles so UI matches the token after refresh
  * or if the persisted store is missing/outdated role entries.
+ *
+ * JWT roles are ignored until `hasAuthHydrated` is true so the first client render matches SSR
+ * (no localStorage on the server). Prevents hydration mismatches on role-gated <Link> trees.
  */
 export const getEffectiveRoles = (user: { roles?: UserRole[] } | null): UserRole[] => {
   const fromStore = user?.roles ?? [];
-  const fromToken = parseRolesFromStoredAccessToken();
+  const canReadToken =
+    typeof window !== "undefined" && useAuthStore.getState().hasAuthHydrated;
+  const fromToken = canReadToken ? parseRolesFromStoredAccessToken() : [];
   if (fromToken.length === 0) {
     return fromStore;
   }

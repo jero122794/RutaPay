@@ -28,7 +28,7 @@ const BottomNav = (): JSX.Element => {
   return (
     <nav
       className={[
-        "fixed inset-x-0 bottom-0 z-40 border-t border-white/5 bg-surface md:hidden",
+        "fixed inset-x-0 bottom-0 z-40 border-t border-outline-variant/20 bg-background/92 backdrop-blur-md md:hidden",
         "pb-[env(safe-area-inset-bottom)]"
       ].join(" ")}
     >
@@ -40,8 +40,8 @@ const BottomNav = (): JSX.Element => {
                   className="flex min-h-[2.875rem] flex-col items-center justify-center gap-0.5 px-0.5 py-1 text-center"
                   aria-hidden
                 >
-                  <span className="h-[18px] w-[18px] rounded bg-slate-700/40" />
-                  <span className="mt-0.5 h-2 w-10 max-w-full rounded bg-slate-700/40" />
+                  <span className="h-[18px] w-[18px] rounded bg-white/10" />
+                  <span className="mt-0.5 h-2 w-10 max-w-full rounded bg-white/[0.08]" />
                 </div>
               </li>
             ))
@@ -59,8 +59,8 @@ const BottomNav = (): JSX.Element => {
                     ].join(" ")}
                     aria-current={active ? "page" : undefined}
                   >
-                    <span className={active ? "text-primary" : "text-slate-400"}>
-                      <NavIcon icon={item.icon} className="h-[18px] w-[18px]" />
+                    <span className={active ? "text-primary" : "text-on-surface-variant"}>
+                      <NavIcon icon={item.icon} className="text-[18px] leading-none" filled={active} />
                     </span>
                     <span className="line-clamp-2 w-full px-0.5">{item.label}</span>
                   </Link>

@@ -1,11 +1,11 @@
 {
-  "name": "GestorRutas — Préstamos",
-  "short_name": "GestorRutas",
+  "name": "Ruut — Préstamos",
+  "short_name": "Ruut",
   "description": "Gestión de préstamos y rutas de cobro",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0f1e",
-  "theme_color": "#0a0f1e",
+  "background_color": "#05080f",
+  "theme_color": "#05080f",
   "orientation": "portrait-primary",
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },

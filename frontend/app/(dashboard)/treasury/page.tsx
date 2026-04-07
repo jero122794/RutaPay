@@ -5,7 +5,7 @@ import axios from "axios";
 import { useEffect, useMemo, useState } from "react";
 import api from "../../../lib/api";
 import TablePagination from "../../../components/ui/TablePagination";
-import { getBogotaYMD } from "../../../lib/bogota";
+import { getBogotaYMD, toBogotaDayKey } from "../../../lib/bogota";
 import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../lib/page-size";
 import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
@@ -93,6 +93,23 @@ interface LiquidationReviewsListResponse {
   limit: number;
 }
 
+interface PaymentItem {
+  id: string;
+  clientName: string;
+  amount: number;
+  method: "CASH" | "TRANSFER";
+  status: "ACTIVE" | "REVERSED";
+  createdAt: string;
+}
+
+interface LoanMovementItem {
+  id: string;
+  principal: number;
+  startDate: string;
+  status: "ACTIVE" | "COMPLETED" | "DEFAULTED" | "RESTRUCTURED";
+  clientId: string;
+}
+
 const liquidationReviewStatusLabel = (status: LiquidationReviewStatus): string => {
   switch (status) {
     case "NOT_SUBMITTED":
@@ -111,6 +128,16 @@ const liquidationReviewStatusLabel = (status: LiquidationReviewStatus): string =
 interface LiquidationDashboardProps {
   data: LiquidationResponse;
 }
+
+const formatBogotaTimeFromIso = (iso: string): string => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("es-CO", {
+    timeZone: "America/Bogota",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(d);
+};
 
 /** Simplified day summary for route managers (recaudo, prestado, saldo en caja). */
 const RouteManagerLiquidationSimple = ({ data }: LiquidationDashboardProps): JSX.Element => {
@@ -227,7 +254,7 @@ const LiquidationDashboard = ({ data }: LiquidationDashboardProps): JSX.Element 
       <div>
         <h3 className="text-base font-semibold text-textPrimary">Por ruta</h3>
         <div className="mt-2 rutapay-table-wrap">
-          <table className="rutapay-table">
+          <table className="rutapay-table rutapay-table--responsive">
             <thead>
               <tr>
                 <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-textSecondary">
@@ -253,12 +280,12 @@ const LiquidationDashboard = ({ data }: LiquidationDashboardProps): JSX.Element 
             <tbody>
               {pagedByRoute.map((r) => (
                 <tr key={r.routeId} className="border-t border-border">
-                  <td className="px-3 py-3 text-sm font-medium text-textPrimary">{r.routeName}</td>
-                  <td className="px-3 py-3 text-right text-sm">{formatCOP(r.cashInRoute)}</td>
-                  <td className="px-3 py-3 text-right text-sm">{formatCOP(r.activePortfolio)}</td>
-                  <td className="px-3 py-3 text-right text-sm">{formatCOP(r.collectedOnDate)}</td>
-                  <td className="px-3 py-3 text-right text-sm">{formatCOP(r.lentPrincipalOnDate)}</td>
-                  <td className="px-3 py-3 text-right text-sm text-warning">
+                  <td data-label="Ruta" className="px-3 py-3 text-sm font-medium text-textPrimary">{r.routeName}</td>
+                  <td data-label="Caja" className="px-3 py-3 text-right text-sm">{formatCOP(r.cashInRoute)}</td>
+                  <td data-label="Cartera activa" className="px-3 py-3 text-right text-sm">{formatCOP(r.activePortfolio)}</td>
+                  <td data-label="Recaudo día" className="px-3 py-3 text-right text-sm">{formatCOP(r.collectedOnDate)}</td>
+                  <td data-label="Prestado día" className="px-3 py-3 text-right text-sm">{formatCOP(r.lentPrincipalOnDate)}</td>
+                  <td data-label="Mora" className="px-3 py-3 text-right text-sm text-warning">
                     {formatCOP(r.overdueInstallmentsOutstanding)}
                   </td>
                 </tr>
@@ -287,7 +314,7 @@ const LiquidationDashboard = ({ data }: LiquidationDashboardProps): JSX.Element 
           modelo actual.
         </p>
         <div className="mt-2 rutapay-table-wrap">
-          <table className="rutapay-table">
+          <table className="rutapay-table rutapay-table--responsive">
             <thead>
               <tr>
                 <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-textSecondary">
@@ -310,11 +337,11 @@ const LiquidationDashboard = ({ data }: LiquidationDashboardProps): JSX.Element 
             <tbody>
               {pagedByFrequency.map((row) => (
                 <tr key={row.frequency} className="border-t border-border">
-                  <td className="px-3 py-3 text-sm text-textPrimary">{row.label}</td>
-                  <td className="px-3 py-3 text-right text-sm">{formatCOP(row.collectedOnDate)}</td>
-                  <td className="px-3 py-3 text-right text-sm">{formatCOP(row.lentPrincipalOnDate)}</td>
-                  <td className="px-3 py-3 text-right text-sm">{row.activeLoansCount}</td>
-                  <td className="px-3 py-3 text-right text-sm text-warning">
+                  <td data-label="Frecuencia" className="px-3 py-3 text-sm text-textPrimary">{row.label}</td>
+                  <td data-label="Recaudo día" className="px-3 py-3 text-right text-sm">{formatCOP(row.collectedOnDate)}</td>
+                  <td data-label="Prestado día" className="px-3 py-3 text-right text-sm">{formatCOP(row.lentPrincipalOnDate)}</td>
+                  <td data-label="Préstamos activos" className="px-3 py-3 text-right text-sm">{row.activeLoansCount}</td>
+                  <td data-label="Mora" className="px-3 py-3 text-right text-sm text-warning">
                     {formatCOP(row.overdueInstallmentsOutstanding)}
                   </td>
                 </tr>
@@ -436,6 +463,7 @@ const TreasuryPage = (): JSX.Element => {
   const [reviewPage, setReviewPage] = useState(1);
   const [reviewLimit, setReviewLimit] = useState<PageSize>(DEFAULT_PAGE_SIZE);
   const [managerCloseNote, setManagerCloseNote] = useState("");
+  const [search, setSearch] = useState("");
 
   const liquidationSubjectId = isAdminView ? selectedManagerId : user?.id ?? "";
 
@@ -475,6 +503,28 @@ const TreasuryPage = (): JSX.Element => {
       return response.data;
     },
     enabled: isRouteManagerView && Boolean(user?.id)
+  });
+
+  const paymentsWideQuery = useQuery({
+    queryKey: ["treasury-movements-payments", liquidationDate],
+    queryFn: async (): Promise<ListResponse<PaymentItem>> => {
+      const response = await api.get<ListResponse<PaymentItem>>("/payments", {
+        params: { page: 1, limit: 2000 }
+      });
+      return response.data;
+    },
+    enabled: isRouteManagerView
+  });
+
+  const loansWideQuery = useQuery({
+    queryKey: ["treasury-movements-loans", liquidationDate],
+    queryFn: async (): Promise<ListResponse<LoanMovementItem>> => {
+      const response = await api.get<ListResponse<LoanMovementItem>>("/loans", {
+        params: { page: 1, limit: 2000 }
+      });
+      return response.data;
+    },
+    enabled: isRouteManagerView
   });
 
   useEffect(() => {
@@ -570,6 +620,77 @@ const TreasuryPage = (): JSX.Element => {
     }
   });
 
+  const movements = useMemo(() => {
+    if (!isRouteManagerView) return [];
+
+    const paymentRows = (paymentsWideQuery.data?.data ?? [])
+      .filter((p) => p.status === "ACTIVE")
+      .filter((p) => toBogotaDayKey(p.createdAt) === liquidationDate)
+      .map((p) => ({
+        kind: "PAYMENT" as const,
+        id: p.id,
+        title: "Colección",
+        subtitle: `Cliente: ${p.clientName} · ${formatBogotaTimeFromIso(p.createdAt)}`,
+        amount: p.amount,
+        signedAmount: p.amount,
+        tone: "positive" as const,
+        at: p.createdAt
+      }));
+
+    const loanRows = (loansWideQuery.data?.data ?? [])
+      .filter((l) => l.status === "ACTIVE")
+      .filter((l) => toBogotaDayKey(l.startDate) === liquidationDate)
+      .map((l) => ({
+        kind: "LOAN" as const,
+        id: l.id,
+        title: "Nuevo préstamo",
+        subtitle: `ID: ${l.id.slice(0, 8).toUpperCase()} · ${formatBogotaTimeFromIso(l.startDate)}`,
+        amount: l.principal,
+        signedAmount: -l.principal,
+        tone: "negative" as const,
+        at: l.startDate
+      }));
+
+    const q = search.trim().toLowerCase();
+    const merged = [...paymentRows, ...loanRows].sort((a, b) => {
+      const ta = new Date(a.at).getTime();
+      const tb = new Date(b.at).getTime();
+      return tb - ta;
+    });
+
+    const filtered = q.length
+      ? merged.filter((m) => `${m.title} ${m.subtitle} ${m.id}`.toLowerCase().includes(q))
+      : merged;
+
+    return filtered.slice(0, 12);
+  }, [isRouteManagerView, liquidationDate, loansWideQuery.data, paymentsWideQuery.data, search]);
+
+  const rmLiquidation = liquidationDetailQuery.data?.data ?? null;
+  const rmReview = myLiquidationReviewQuery.data?.data ?? null;
+  const rmCanSubmit =
+    Boolean(rmLiquidation) &&
+    rmReview?.reviewStatus !== "APPROVED" &&
+    !submitLiquidationReviewMutation.isPending;
+
+  const closeTaskDataReady = Boolean(rmLiquidation);
+  const closeTaskNoteReady = managerCloseNote.trim().length > 0;
+  const closeTaskSubmitted = rmReview?.reviewStatus === "SUBMITTED" || rmReview?.reviewStatus === "APPROVED";
+  const closeAllTasksDone = closeTaskDataReady && closeTaskNoteReady && closeTaskSubmitted;
+
+  const rmFrequencyBars = useMemo(() => {
+    const rows = rmLiquidation?.byFrequency ?? [];
+    const top = [...rows]
+      .sort((a, b) => b.collectedOnDate - a.collectedOnDate)
+      .slice(0, 5);
+    const max = Math.max(1, ...top.map((r) => r.collectedOnDate));
+    return top.map((r) => ({
+      key: r.frequency,
+      label: r.label,
+      value: r.collectedOnDate,
+      pct: Math.round((r.collectedOnDate / max) * 100)
+    }));
+  }, [rmLiquidation]);
+
   return (
     <section className="space-y-4">
       <header className="rounded-xl border border-border bg-surface p-6">
@@ -608,6 +729,327 @@ const TreasuryPage = (): JSX.Element => {
         </div>
       ) : null}
 
+      {isRouteManagerView && user?.id ? (
+        <div className="space-y-6">
+          <div className="rounded-[2rem] border border-outline-variant/10 bg-surface-container-high p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 className="headline text-xl font-extrabold tracking-tight">Ruut · Tesorería</h2>
+                <p className="mt-1 text-sm text-on-surface-variant">
+                  Movimientos y cierre del día operativo ({liquidationDate}).
+                </p>
+              </div>
+              <div className="flex items-center gap-3 rounded-full border border-outline-variant/10 bg-surface-container-lowest/50 px-4 py-2">
+                <span className="material-symbols-outlined text-on-surface-variant" aria-hidden>
+                  search
+                </span>
+                <input
+                  className="w-72 border-none bg-transparent text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:ring-0"
+                  placeholder="Buscar movimientos…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          {liquidationDetailQuery.isLoading ? (
+            <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-low p-6">
+              <p className="text-sm text-on-surface-variant">Cargando liquidación…</p>
+            </div>
+          ) : null}
+          {liquidationDetailQuery.isError ? (
+            <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-low p-6">
+              <p className="text-sm text-error">{getErrorMessage(liquidationDetailQuery.error)}</p>
+            </div>
+          ) : null}
+
+          {rmLiquidation ? (
+            <>
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-12">
+                <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-primary to-primary-container p-8 shadow-[0_12px_32px_rgba(0,0,0,0.35),0_4px_8px_rgba(105,246,184,0.08)] md:col-span-6 lg:col-span-5">
+                  <div className="relative z-10">
+                    <p className="mb-1 text-sm font-medium text-on-primary/70">Saldo en caja</p>
+                    <div className="flex items-end gap-3">
+                      <h3 className="headline text-5xl font-extrabold tracking-tight text-on-primary">
+                        {formatCOP(rmLiquidation.currentBalance)}
+                      </h3>
+                    </div>
+                    <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-on-primary/10 px-3 py-1 text-xs font-bold text-on-primary backdrop-blur-sm">
+                      <span className="material-symbols-outlined text-[14px]" aria-hidden>
+                        account_balance_wallet
+                      </span>
+                      Caja actual de tu ruta
+                    </div>
+                  </div>
+                  <div className="pointer-events-none absolute -bottom-12 -right-12 opacity-10">
+                    <span className="material-symbols-outlined text-[180px]" aria-hidden>
+                      account_balance_wallet
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col justify-between rounded-[2rem] border border-outline-variant/5 bg-surface-container-high p-6 md:col-span-6 lg:col-span-3">
+                  <div>
+                    <p className="mb-1 text-sm text-on-surface-variant">Cobros del día</p>
+                    <p className="headline text-3xl font-bold tracking-tight text-primary">
+                      {formatCOP(rmLiquidation.totalsOnDate.collected)}
+                    </p>
+                  </div>
+                  <div className="mt-4 flex items-end justify-between">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Net cashflow</span>
+                      <div className="h-1.5 w-32 overflow-hidden rounded-full bg-surface-container-lowest">
+                        <div className="h-full w-[100%] rounded-full bg-primary/60" />
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-on-surface-variant">
+                      {formatCOP(rmLiquidation.totalsOnDate.collected - rmLiquidation.totalsOnDate.lentPrincipal)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="relative overflow-hidden rounded-[2rem] border border-outline-variant/5 bg-surface-container-high p-6 md:col-span-12 lg:col-span-4">
+                  <div>
+                    <p className="mb-1 text-sm text-on-surface-variant">Egresos / préstamos</p>
+                    <p className="headline text-3xl font-bold tracking-tight text-error">
+                      {formatCOP(rmLiquidation.totalsOnDate.lentPrincipal)}
+                    </p>
+                  </div>
+                  <div className="mt-6 flex gap-4 overflow-x-auto">
+                    <div className="w-28 flex-shrink-0 rounded-2xl border border-outline-variant/5 bg-surface-container-low p-3">
+                      <span className="mb-1 block text-[10px] uppercase tracking-widest text-on-surface-variant">Cartera</span>
+                      <span className="text-sm font-bold text-on-surface">{formatCOP(rmLiquidation.activePortfolio)}</span>
+                    </div>
+                    <div className="w-28 flex-shrink-0 rounded-2xl border border-outline-variant/5 bg-surface-container-low p-3">
+                      <span className="mb-1 block text-[10px] uppercase tracking-widest text-on-surface-variant">A devolver</span>
+                      <span className="text-sm font-bold text-on-surface">{formatCOP(rmLiquidation.amountToReturn)}</span>
+                    </div>
+                    <div className="w-28 flex-shrink-0 rounded-2xl border border-outline-variant/5 bg-surface-container-low p-3">
+                      <span className="mb-1 block text-[10px] uppercase tracking-widest text-on-surface-variant">Recaudo hist.</span>
+                      <span className="text-sm font-bold text-on-surface">{formatCOP(rmLiquidation.recoveredPayments)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+                <div className="space-y-6 lg:col-span-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="headline flex items-center gap-2 text-xl font-extrabold">
+                      Movimientos de hoy
+                      <span className="rounded-full bg-surface-container-highest px-2 py-0.5 text-[10px] font-bold uppercase tracking-tighter text-primary">
+                        Live
+                      </span>
+                    </h4>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="rounded-full border border-outline-variant/5 bg-surface-container-high px-4 py-2 text-xs font-bold text-on-surface-variant"
+                        onClick={() => setSearch("")}
+                      >
+                        Limpiar
+                      </button>
+                    </div>
+                  </div>
+
+                  {paymentsWideQuery.isLoading || loansWideQuery.isLoading ? (
+                    <p className="text-sm text-on-surface-variant">Cargando movimientos…</p>
+                  ) : null}
+                  {paymentsWideQuery.isError ? (
+                    <p className="text-sm text-error">{getErrorMessage(paymentsWideQuery.error)}</p>
+                  ) : null}
+                  {loansWideQuery.isError ? <p className="text-sm text-error">{getErrorMessage(loansWideQuery.error)}</p> : null}
+
+                  {movements.length === 0 ? (
+                    <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-low p-6">
+                      <p className="text-sm text-on-surface-variant">No hay movimientos para la fecha seleccionada.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {movements.map((m) => (
+                        <div
+                          key={`${m.kind}-${m.id}`}
+                          className="group flex items-center justify-between rounded-2xl bg-surface-container-low p-4 transition-colors hover:bg-surface-container-high"
+                        >
+                          <div className="flex items-center gap-4">
+                            <div
+                              className={[
+                                "flex h-12 w-12 items-center justify-center rounded-xl",
+                                m.tone === "positive" ? "bg-primary/10 text-primary" : "bg-error/10 text-error"
+                              ].join(" ")}
+                            >
+                              <span className="material-symbols-outlined" aria-hidden>
+                                {m.kind === "PAYMENT" ? "payments" : "send_money"}
+                              </span>
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-on-surface">{m.title}</p>
+                              <p className="text-xs text-on-surface-variant">{m.subtitle}</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p
+                              className={[
+                                "text-sm font-bold",
+                                m.tone === "positive" ? "text-primary" : "text-error"
+                              ].join(" ")}
+                            >
+                              {m.signedAmount >= 0 ? "+" : "-"}
+                              {formatCOP(Math.abs(m.signedAmount))}
+                            </p>
+                            <p className="text-[10px] uppercase tracking-wider text-on-surface-variant">
+                              {m.kind === "PAYMENT" ? "Cobro" : "Préstamo"}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-8">
+                  <div className="rounded-[2rem] border border-outline-variant/5 bg-surface-container-high p-8">
+                    <h4 className="headline mb-6 text-lg font-bold">Estadísticas de eficiencia</h4>
+                    {rmFrequencyBars.length === 0 ? (
+                      <p className="text-sm text-on-surface-variant">Sin datos por frecuencia para este día.</p>
+                    ) : (
+                      <div className="space-y-4">
+                        {rmFrequencyBars.map((b) => (
+                          <div key={b.key} className="space-y-2">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-on-surface-variant">{b.label}</span>
+                              <span className="font-bold text-on-surface">{formatCOP(b.value)}</span>
+                            </div>
+                            <div className="h-2 overflow-hidden rounded-full bg-surface-container-lowest">
+                              <div className="h-full rounded-full bg-primary" style={{ width: `${b.pct}%` }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-[2rem] border border-outline-variant/5 bg-surface-container-high p-8">
+                    <div className="mb-6 flex items-center gap-3">
+                      <span className="material-symbols-outlined text-tertiary" aria-hidden>
+                        task_alt
+                      </span>
+                      <h4 className="headline text-lg font-bold">Tareas de cierre</h4>
+                    </div>
+
+                    <div className="mb-8 space-y-3">
+                      <div
+                        className={[
+                          "flex items-center gap-3 rounded-xl p-3",
+                          closeTaskDataReady
+                            ? "border border-primary/20 bg-surface-container-low"
+                            : "border border-outline-variant/10 bg-surface-container-low opacity-60"
+                        ].join(" ")}
+                      >
+                        <span
+                          className="material-symbols-outlined text-xl"
+                          aria-hidden
+                          style={{ fontVariationSettings: closeTaskDataReady ? "'FILL' 1" : "'FILL' 0" }}
+                        >
+                          {closeTaskDataReady ? "check_circle" : "radio_button_unchecked"}
+                        </span>
+                        <span className="text-sm font-medium text-on-surface">
+                          Liquidación calculada
+                        </span>
+                      </div>
+
+                      <div
+                        className={[
+                          "flex items-center gap-3 rounded-xl p-3",
+                          closeTaskNoteReady
+                            ? "border border-primary/20 bg-surface-container-low"
+                            : "border border-outline-variant/10 bg-surface-container-low opacity-60"
+                        ].join(" ")}
+                      >
+                        <span
+                          className="material-symbols-outlined text-xl"
+                          aria-hidden
+                          style={{ fontVariationSettings: closeTaskNoteReady ? "'FILL' 1" : "'FILL' 0" }}
+                        >
+                          {closeTaskNoteReady ? "check_circle" : "radio_button_unchecked"}
+                        </span>
+                        <span className="text-sm font-medium text-on-surface">
+                          Nota para administración
+                        </span>
+                      </div>
+
+                      <div
+                        className={[
+                          "flex items-center gap-3 rounded-xl p-3",
+                          closeTaskSubmitted
+                            ? "border border-primary/20 bg-surface-container-low"
+                            : "border border-outline-variant/10 bg-surface-container-low opacity-60"
+                        ].join(" ")}
+                      >
+                        <span
+                          className="material-symbols-outlined text-xl"
+                          aria-hidden
+                          style={{ fontVariationSettings: closeTaskSubmitted ? "'FILL' 1" : "'FILL' 0" }}
+                        >
+                          {closeTaskSubmitted ? "check_circle" : "radio_button_unchecked"}
+                        </span>
+                        <span className="text-sm font-medium text-on-surface">Cierre enviado</span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={!rmCanSubmit || !closeTaskDataReady || !closeTaskNoteReady}
+                      className={[
+                        "flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-sm font-bold transition-all",
+                        !rmCanSubmit || !closeTaskDataReady || !closeTaskNoteReady
+                          ? "cursor-not-allowed bg-gradient-to-br from-primary/40 to-primary-container/40 text-on-primary/60"
+                          : "bg-primary text-on-primary shadow-xl active:scale-[0.98]"
+                      ].join(" ")}
+                      onClick={() => submitLiquidationReviewMutation.mutate()}
+                    >
+                      <span className="material-symbols-outlined" aria-hidden>
+                        send
+                      </span>
+                      {submitLiquidationReviewMutation.isPending
+                        ? rmReview?.reviewStatus === "SUBMITTED"
+                          ? "Guardando…"
+                          : "Enviando…"
+                        : rmReview?.reviewStatus === "SUBMITTED"
+                          ? "Actualizar nota del envío"
+                          : "Enviar liquidación diaria"}
+                    </button>
+                    <p className="mt-3 text-center text-[10px] uppercase tracking-wider text-on-surface-variant">
+                      {closeAllTasksDone ? "Listo: enviado para revisión" : "Completa las tareas para habilitar"}
+                    </p>
+
+                    <div className="mt-6">
+                      <label className="mb-2 block text-xs font-bold uppercase text-on-surface-variant">
+                        Nota para administración
+                      </label>
+                      <textarea
+                        className="w-full rounded-2xl border border-outline-variant/10 bg-surface-container-lowest px-4 py-3 text-sm text-on-surface focus:ring-1 focus:ring-primary/40"
+                        rows={3}
+                        value={managerCloseNote}
+                        onChange={(e) => setManagerCloseNote(e.target.value)}
+                        disabled={rmReview?.reviewStatus === "APPROVED"}
+                      />
+                      {submitLiquidationReviewMutation.isError ? (
+                        <p className="mt-2 text-sm text-error">{getErrorMessage(submitLiquidationReviewMutation.error)}</p>
+                      ) : null}
+                      {rmReview?.reviewStatus === "REJECTED" && rmReview.reviewNote ? (
+                        <p className="mt-2 text-xs text-warning">Rechazado: {rmReview.reviewNote}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
       {isAdminView ? (
         <div className="rounded-xl border border-border bg-surface p-6">
           <h2 className="text-lg font-semibold">Cierres del día (todos los encargados)</h2>
@@ -628,7 +1070,7 @@ const TreasuryPage = (): JSX.Element => {
                 {liquidationReviewsListQuery.data.total === 0 ? (
                   <p className="text-sm text-textSecondary">No hay encargados con rutas asignadas.</p>
                 ) : (
-                  <table className="rutapay-table">
+                  <table className="rutapay-table rutapay-table--responsive">
                     <thead>
                       <tr>
                         <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-textSecondary">
@@ -660,16 +1102,16 @@ const TreasuryPage = (): JSX.Element => {
                     <tbody>
                       {liquidationReviewsListQuery.data.data.map((row) => (
                         <tr key={row.managerId} className="border-t border-border">
-                          <td className="px-3 py-3 text-sm font-medium text-textPrimary">{row.managerName}</td>
-                          <td className="px-3 py-3 text-right text-sm">{formatCOP(row.collectedOnDate)}</td>
-                          <td className="px-3 py-3 text-right text-sm">{formatCOP(row.lentPrincipalOnDate)}</td>
-                          <td className="px-3 py-3 text-right text-sm">{formatCOP(row.netCashflowDay)}</td>
-                          <td className="px-3 py-3 text-right text-sm">{formatCOP(row.cashInRoutes)}</td>
-                          <td className="px-3 py-3 text-right text-sm text-primary">{formatCOP(row.availableToLend)}</td>
-                          <td className="px-3 py-3 text-sm text-textSecondary">
+                          <td data-label="Encargado" className="px-3 py-3 text-sm font-medium text-textPrimary">{row.managerName}</td>
+                          <td data-label="Recaudo día" className="px-3 py-3 text-right text-sm">{formatCOP(row.collectedOnDate)}</td>
+                          <td data-label="Prestado día" className="px-3 py-3 text-right text-sm">{formatCOP(row.lentPrincipalOnDate)}</td>
+                          <td data-label="Neto día" className="px-3 py-3 text-right text-sm">{formatCOP(row.netCashflowDay)}</td>
+                          <td data-label="Caja rutas" className="px-3 py-3 text-right text-sm">{formatCOP(row.cashInRoutes)}</td>
+                          <td data-label="Disp. prestar" className="px-3 py-3 text-right text-sm text-primary">{formatCOP(row.availableToLend)}</td>
+                          <td data-label="Estado" className="px-3 py-3 text-sm text-textSecondary">
                             {liquidationReviewStatusLabel(row.reviewStatus)}
                           </td>
-                          <td className="px-3 py-3 text-right text-sm">
+                          <td data-no-label="true" data-align="end" className="px-3 py-3 text-right text-sm">
                             {row.reviewStatus === "SUBMITTED" ? (
                               <div className="flex flex-col items-end gap-2 sm:flex-row sm:justify-end">
                                 <button
@@ -723,93 +1165,6 @@ const TreasuryPage = (): JSX.Element => {
         </div>
       ) : null}
 
-      {isRouteManagerView && user?.id ? (
-        <div className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="text-lg font-semibold">Liquidación del día</h2>
-          <p className="mt-1 text-sm text-textSecondary">
-            Resumen simple: lo recaudado, lo prestado y el saldo en caja. El crédito a la ruta lo gestiona administración.
-          </p>
-          {liquidationDetailQuery.isLoading ? (
-            <p className="mt-4 text-sm text-textSecondary">Cargando liquidación...</p>
-          ) : null}
-          {liquidationDetailQuery.isError ? (
-            <p className="mt-4 text-sm text-danger">{getErrorMessage(liquidationDetailQuery.error)}</p>
-          ) : null}
-          {liquidationDetailQuery.data?.data ? (
-            <RouteManagerLiquidationSimple data={liquidationDetailQuery.data.data} />
-          ) : null}
-
-          <div className="mt-8 border-t border-border pt-6">
-            <h3 className="text-base font-semibold text-textPrimary">Cierre del día para administración</h3>
-            <p className="mt-1 text-sm text-textSecondary">
-              Usa los mismos importes del resumen de arriba. Envía a revisión cuando cuadre; un administrador aprobará o rechazará.
-            </p>
-            {myLiquidationReviewQuery.isLoading ? (
-              <p className="mt-4 text-sm text-textSecondary">Cargando resumen...</p>
-            ) : null}
-            {myLiquidationReviewQuery.isError ? (
-              <p className="mt-4 text-sm text-danger">{getErrorMessage(myLiquidationReviewQuery.error)}</p>
-            ) : null}
-            {myLiquidationReviewQuery.data?.data ? (
-              <div className="mt-4 space-y-3 rounded-lg border border-border bg-bg p-4 text-sm">
-                <div className="flex flex-wrap justify-between gap-2">
-                  <span className="text-textSecondary">Estado</span>
-                  <span className="font-medium text-textPrimary">
-                    {liquidationReviewStatusLabel(myLiquidationReviewQuery.data.data.reviewStatus)}
-                  </span>
-                </div>
-                {myLiquidationReviewQuery.data.data.reviewNote ? (
-                  <p className="text-xs text-textSecondary">
-                    Nota de revisión: {myLiquidationReviewQuery.data.data.reviewNote}
-                  </p>
-                ) : null}
-                <label className="mt-2 block text-sm text-textSecondary">Nota para administración (opcional)</label>
-                <textarea
-                  className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-textPrimary"
-                  rows={2}
-                  value={managerCloseNote}
-                  onChange={(e) => setManagerCloseNote(e.target.value)}
-                  disabled={
-                    submitLiquidationReviewMutation.isPending ||
-                    myLiquidationReviewQuery.data.data.reviewStatus === "APPROVED"
-                  }
-                />
-                <button
-                  type="button"
-                  disabled={
-                    submitLiquidationReviewMutation.isPending ||
-                    myLiquidationReviewQuery.data.data.reviewStatus === "APPROVED"
-                  }
-                  className="mt-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                  onClick={() => submitLiquidationReviewMutation.mutate()}
-                >
-                  {submitLiquidationReviewMutation.isPending
-                    ? myLiquidationReviewQuery.data.data.reviewStatus === "SUBMITTED"
-                      ? "Guardando..."
-                      : "Enviando..."
-                    : myLiquidationReviewQuery.data.data.reviewStatus === "SUBMITTED"
-                      ? "Actualizar nota del envío"
-                      : "Enviar a revisión"}
-                </button>
-                {myLiquidationReviewQuery.data.data.reviewStatus === "SUBMITTED" ? (
-                  <p className="text-xs text-textSecondary">
-                    En revisión: puedes actualizar la nota hasta que administración apruebe o rechace.
-                  </p>
-                ) : null}
-                {myLiquidationReviewQuery.data.data.reviewStatus === "REJECTED" ? (
-                  <p className="text-xs text-warning">
-                    Rechazado: corrige lo indicado en la nota y vuelve a enviar.
-                  </p>
-                ) : null}
-                {submitLiquidationReviewMutation.isError ? (
-                  <p className="text-sm text-danger">{getErrorMessage(submitLiquidationReviewMutation.error)}</p>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
       {isAdminView ? (
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
@@ -825,7 +1180,7 @@ const TreasuryPage = (): JSX.Element => {
                   {routesTableQuery.data.total === 0 ? (
                     <p className="text-sm text-textSecondary">No hay rutas registradas.</p>
                   ) : (
-                    <table className="rutapay-table">
+                    <table className="rutapay-table rutapay-table--responsive">
                       <thead>
                         <tr>
                           <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-textSecondary">
@@ -842,13 +1197,13 @@ const TreasuryPage = (): JSX.Element => {
                       <tbody>
                         {routesTableQuery.data.data.map((r) => (
                           <tr key={r.id} className="border-t border-border">
-                            <td className="px-3 py-3 text-sm">
+                            <td data-label="Ruta" className="px-3 py-3 text-sm">
                               <span className="font-medium">{r.name}</span>
                             </td>
-                            <td className="px-3 py-3 text-sm text-textSecondary">
+                            <td data-label="Encargado" className="px-3 py-3 text-sm text-textSecondary">
                               {r.managerName || managerNameById[r.managerId] || r.managerId}
                             </td>
-                            <td className="px-3 py-3 text-right text-sm text-textPrimary">
+                            <td data-label="Balance" className="px-3 py-3 text-right text-sm text-textPrimary">
                               {formatCOP(r.balance)}
                             </td>
                           </tr>

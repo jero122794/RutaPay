@@ -4,7 +4,7 @@ import "./globals.css";
 import Providers from "./providers";
 
 export const metadata: Metadata = {
-  title: "GestorRutas",
+  title: "Ruut",
   description: "Gestión de préstamos y rutas de cobro",
   manifest: "/manifest.json",
   icons: {
@@ -20,7 +20,7 @@ const RootLayout = ({ children }: RootLayoutProps): JSX.Element => {
   return (
     <html lang="es" className="dark">
       <head>
-        <meta name="theme-color" content="#0a0f1e" />
+        <meta name="theme-color" content="#05080f" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

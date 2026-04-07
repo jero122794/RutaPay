@@ -1,7 +1,11 @@
 // backend/src/modules/loans/service.ts
 import type { LoanStatus, Prisma } from "@prisma/client";
 import { calculateLoan } from "../../shared/loan-calculator.js";
-import { computeLatePenaltyCOP, interestSharePerInstallmentCOP } from "../../shared/late-penalty.js";
+import {
+  computeLatePenaltyWithCatchUpGraceCOP,
+  computeLatePenaltyCOP,
+  interestSharePerInstallmentCOP
+} from "../../shared/late-penalty.js";
 import { assertLoanAccessForActor, loanRowWithoutRoute } from "../../shared/loan-ownership.js";
 import type { PaginationQuery } from "../../shared/pagination.schema.js";
 import { prismaPaginationBounds } from "../../shared/pagination.schema.js";
@@ -400,12 +404,16 @@ export const getLoanSchedule = async (
   );
   const now = new Date();
 
-  return schedule.map((item) => {
+  return schedule.map((item, idx) => {
     const amount = decimalToNumber(item.amount);
     const paidAmount = decimalToNumber(item.paidAmount);
     // Mora is calculated dynamically from due date (Bogotá calendar days).
     // It is applied in payments; exposing it here keeps UI totals aligned.
-    const latePenalty = item.status === "PAID" ? 0 : computeLatePenaltyCOP(item.dueDate, now, interestShareCOP);
+    const nextDueDate = schedule[idx + 1]?.dueDate ?? null;
+    const latePenalty =
+      item.status === "PAID"
+        ? 0
+        : computeLatePenaltyWithCatchUpGraceCOP(item.dueDate, now, interestShareCOP, nextDueDate);
     const totalDue = amount + latePenalty;
     const pendingAmount = Math.max(totalDue - paidAmount, 0);
 

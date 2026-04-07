@@ -9,6 +9,12 @@ interface ProvidersProps {
   children: React.ReactNode;
 }
 
+/** Subscribes to auth hydration so trees using getEffectiveRoles() re-render once JWT roles may be merged. */
+const AuthHydrationBridge = (): null => {
+  useAuthStore((state) => state.hasAuthHydrated);
+  return null;
+};
+
 const Providers = ({ children }: ProvidersProps): JSX.Element => {
   const [queryClient] = useState(
     () =>
@@ -29,7 +35,12 @@ const Providers = ({ children }: ProvidersProps): JSX.Element => {
     })();
   }, []);
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthHydrationBridge />
+      {children}
+    </QueryClientProvider>
+  );
 };
 
 export default Providers;
