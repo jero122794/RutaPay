@@ -11,7 +11,7 @@ export const roleGuard =
       return reply.code(403).send({
         statusCode: 403,
         error: "Forbidden",
-        message: "Insufficient permissions."
+        message: "Solo usuarios con roles autorizados pueden realizar esta acción."
       });
     }
   };

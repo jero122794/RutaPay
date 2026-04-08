@@ -123,6 +123,7 @@ const BusinessDetailPage = (): JSX.Element => {
   const params = useParams();
   const id = typeof params.id === "string" ? params.id : "";
   const user = useAuthStore((state) => state.user);
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const queryClient = useQueryClient();
   const [memberFilter, setMemberFilter] = useState("");
@@ -133,7 +134,7 @@ const BusinessDetailPage = (): JSX.Element => {
       const res = await api.get<{ data: BusinessDetail }>(`/businesses/${id}`);
       return res.data.data;
     },
-    enabled: Boolean(id) && role === "SUPER_ADMIN"
+    enabled: hasAuthHydrated && Boolean(user) && Boolean(id) && role === "SUPER_ADMIN"
   });
 
   const assignableQuery = useQuery({
@@ -142,7 +143,7 @@ const BusinessDetailPage = (): JSX.Element => {
       const res = await api.get<{ data: AssignableUser[] }>("/businesses/assignable-users");
       return res.data.data;
     },
-    enabled: role === "SUPER_ADMIN" && Boolean(id)
+    enabled: hasAuthHydrated && Boolean(user) && role === "SUPER_ADMIN" && Boolean(id)
   });
 
   const nameForm = useForm<NameForm>({

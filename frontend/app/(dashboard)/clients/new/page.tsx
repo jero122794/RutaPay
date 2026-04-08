@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import axios from "axios";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useQuery } from "@tanstack/react-query";
@@ -66,16 +66,32 @@ const createClientSchema = z.object({
 
 type CreateClientFormData = z.infer<typeof createClientSchema>;
 
+const insetShell =
+  "rounded-xl border border-outline-variant/20 bg-surface-container-lowest px-4 py-3 transition-all focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/50";
+
+const sectionCard =
+  "rounded-xl border border-outline-variant/5 bg-surface-container-low p-6 shadow-2xl md:p-8";
+
+const fieldLabel = "text-xs font-semibold uppercase tracking-wider text-on-surface-variant";
+
 const ClientsNewPage = (): JSX.Element => {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
-  const roles = useMemo((): UserRole[] => getEffectiveRoles(user), [user?.roles, user?.id]);
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
+  const roles = useMemo((): UserRole[] => {
+    if (!hasAuthHydrated) {
+      return [];
+    }
+    return getEffectiveRoles(user);
+  }, [hasAuthHydrated, user]);
   const hasRole = (r: UserRole): boolean => roles.includes(r);
 
   const canCreate =
     hasRole("ADMIN") || hasRole("SUPER_ADMIN") || hasRole("ROUTE_MANAGER");
   const isAdminView = hasRole("ADMIN") || hasRole("SUPER_ADMIN");
   const isRouteManagerView = hasRole("ROUTE_MANAGER");
+
+  const [passwordVisible, setPasswordVisible] = useState(false);
 
   const routesQuery = useQuery({
     queryKey: [isAdminView ? "routes-list" : "routes-me-for-client-create"],
@@ -84,7 +100,7 @@ const ClientsNewPage = (): JSX.Element => {
       const response = await api.get<ListResponse<RouteItem>>(endpoint);
       return response.data;
     },
-    enabled: isAdminView || isRouteManagerView
+    enabled: hasAuthHydrated && Boolean(user) && (isAdminView || isRouteManagerView)
   });
 
   const managerRoutes = routesQuery.data?.data ?? [];
@@ -148,8 +164,8 @@ const ClientsNewPage = (): JSX.Element => {
 
   if (!canCreate) {
     return (
-      <section className="rounded-xl border border-border bg-surface p-6">
-        <p className="text-sm text-danger">No tienes permisos para crear clientes.</p>
+      <section className="rounded-xl border border-outline-variant/10 bg-surface-container-low p-6">
+        <p className="text-sm text-error">No tienes permisos para crear clientes.</p>
         <div className="mt-4">
           <Link href="/clients" className="text-primary hover:underline">
             Volver
@@ -159,176 +175,296 @@ const ClientsNewPage = (): JSX.Element => {
     );
   }
 
-  const routes = routesQuery.data?.data ?? [];
+  const inputBase =
+    "w-full border-0 bg-transparent text-on-surface outline-none placeholder:text-outline/40";
 
   return (
-    <section className="space-y-4">
-      <header className="rounded-xl border border-border bg-surface p-6">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-xl font-semibold">Crear cliente</h1>
-            <p className="mt-1 text-sm text-textSecondary">Registra un nuevo tomador de deuda.</p>
-          </div>
-          <Link href="/clients" className="text-primary hover:underline">
-            Volver a clientes
-          </Link>
+    <div className="mx-auto w-full max-w-5xl space-y-6 pb-28 md:pb-8">
+      <div className="flex items-center gap-4">
+        <Link
+          href="/clients"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-on-surface transition-colors hover:bg-surface-container-highest"
+          aria-label="Volver a clientes"
+        >
+          <span className="material-symbols-outlined" aria-hidden>
+            arrow_back
+          </span>
+        </Link>
+        <div>
+          <h1 className="font-headline text-xl font-bold tracking-tight text-on-surface">Crear nuevo cliente</h1>
+          <p className="mt-0.5 text-sm text-on-surface-variant">Registra un tomador de deuda y su ruta.</p>
         </div>
-      </header>
+      </div>
 
-      <div className="rounded-xl border border-border bg-surface p-6">
-        {(isAdminView || isRouteManagerView) && routesQuery.isLoading ? (
-          <p className="text-sm text-textSecondary">Cargando rutas...</p>
-        ) : null}
-        {(isAdminView || isRouteManagerView) && routesQuery.isError ? (
-          <p className="text-sm text-danger">No fue posible cargar las rutas.</p>
-        ) : null}
+      {(isAdminView || isRouteManagerView) && routesQuery.isLoading ? (
+        <p className="text-sm text-on-surface-variant">Cargando rutas…</p>
+      ) : null}
+      {(isAdminView || isRouteManagerView) && routesQuery.isError ? (
+        <p className="text-sm text-error">No fue posible cargar las rutas.</p>
+      ) : null}
 
-        {routesQuery.isSuccess || routesQuery.isError ? (
-          <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)}>
-            <div>
-              <label htmlFor="name" className="mb-1 block text-sm text-textSecondary">
-                Nombre
-              </label>
-              <input
-                id="name"
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-                {...form.register("name")}
-              />
-              <p className="mt-1 text-xs text-danger">{form.formState.errors.name?.message}</p>
-            </div>
-
-            <div>
-              <label htmlFor="phone" className="mb-1 block text-sm text-textSecondary">
-                Teléfono
-              </label>
-              <input
-                id="phone"
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-                {...form.register("phone")}
-              />
-              <p className="mt-1 text-xs text-danger">{form.formState.errors.phone?.message}</p>
-            </div>
-
-            <div>
-              <label htmlFor="documentId" className="mb-1 block text-sm text-textSecondary">
-                Documento de identidad
-              </label>
-              <input
-                id="documentId"
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-                {...form.register("documentId")}
-              />
-              <p className="mt-1 text-xs text-danger">{form.formState.errors.documentId?.message}</p>
-            </div>
-
-            <div>
-              <label htmlFor="email" className="mb-1 block text-sm text-textSecondary">
-                Correo (opcional)
-              </label>
-              <p className="mb-1 text-xs text-textSecondary">
-                Si no asignas correo ni contraseña, el cliente queda solo registrado; podrás habilitar el acceso
-                más tarde desde su perfil.
-              </p>
-              <input
-                id="email"
-                type="email"
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-                {...form.register("email")}
-              />
-              <p className="mt-1 text-xs text-danger">{form.formState.errors.email?.message}</p>
-            </div>
-
-            <div>
-              <label htmlFor="password" className="mb-1 block text-sm text-textSecondary">
-                Contraseña (opcional)
-              </label>
-              <p className="mb-1 text-xs text-textSecondary">
-                Solo si quieres que pueda iniciar sesión ya; requiere al menos 8 caracteres con mayúscula,
-                minúscula, número y símbolo.
-              </p>
-              <input
-                id="password"
-                type="password"
-                autoComplete="new-password"
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-                {...form.register("password")}
-              />
-              <p className="mt-1 text-xs text-danger">{form.formState.errors.password?.message}</p>
-            </div>
-
-            <div>
-              <label htmlFor="address" className="mb-1 block text-sm text-textSecondary">
-                Dirección (opcional)
-              </label>
-              <input
-                id="address"
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-                {...form.register("address")}
-              />
-              <p className="mt-1 text-xs text-danger">{form.formState.errors.address?.message}</p>
-            </div>
-
-            <div>
-              <label htmlFor="description" className="mb-1 block text-sm text-textSecondary">
-                Descripción (opcional)
-              </label>
-              <textarea
-                id="description"
-                rows={3}
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-                {...form.register("description")}
-              />
-              <p className="mt-1 text-xs text-danger">{form.formState.errors.description?.message}</p>
-            </div>
-
-            {isAdminView || isRouteManagerView ? (
-              <div>
-                <label htmlFor="routeId" className="mb-1 block text-sm text-textSecondary">
-                  Ruta
-                </label>
-                <select
-                  id="routeId"
-                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-                  value={form.watch("routeId") ?? ""}
-                  onChange={(e) => form.setValue("routeId", e.target.value, { shouldValidate: true })}
-                >
-                  <option value="">Selecciona una ruta</option>
-                  {managerRoutes.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-danger">{form.formState.errors.routeId?.message}</p>
+      {routesQuery.isSuccess || routesQuery.isError ? (
+        <form className="space-y-8" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+          <section className={sectionCard}>
+            <div className="mb-8 flex items-center gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                <span className="material-symbols-outlined text-primary" aria-hidden>
+                  badge
+                </span>
               </div>
-            ) : (
               <div>
-                <label htmlFor="routeId" className="mb-1 block text-sm text-textSecondary">
-                  Ruta (automática)
-                </label>
-                <input
-                  id="routeId"
-                  className="w-full rounded-md border border-border bg-bg px-3 py-2 text-textPrimary"
-                  value="Ruta no disponible"
-                  readOnly
-                />
-                <p className="mt-1 text-xs text-danger">{form.formState.errors.routeId?.message}</p>
+                <h2 className="text-lg font-bold text-on-surface">Información personal</h2>
+                <p className="text-sm text-on-surface-variant">Datos básicos de identificación del cliente</p>
               </div>
-            )}
+            </div>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div className="space-y-2">
+                <label htmlFor="name" className={fieldLabel}>
+                  Nombre completo
+                </label>
+                <div className={insetShell}>
+                  <input
+                    id="name"
+                    type="text"
+                    autoComplete="name"
+                    placeholder="Ej: Juan Pérez"
+                    className={inputBase}
+                    {...form.register("name")}
+                  />
+                </div>
+                <p className="text-xs text-error">{form.formState.errors.name?.message}</p>
+              </div>
 
+              <div className="space-y-2">
+                <label htmlFor="documentId" className={fieldLabel}>
+                  Documento de identidad
+                </label>
+                <div className={insetShell}>
+                  <input
+                    id="documentId"
+                    type="text"
+                    autoComplete="off"
+                    placeholder="CC / NIT"
+                    className={inputBase}
+                    {...form.register("documentId")}
+                  />
+                </div>
+                <p className="text-xs text-error">{form.formState.errors.documentId?.message}</p>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="phone" className={fieldLabel}>
+                  Teléfono
+                </label>
+                <div className={`${insetShell} flex items-center`}>
+                  <span className="mr-2 shrink-0 text-sm text-on-surface-variant" aria-hidden>
+                    +57
+                  </span>
+                  <input
+                    id="phone"
+                    type="tel"
+                    autoComplete="tel-national"
+                    placeholder="300 000 0000"
+                    className={inputBase}
+                    {...form.register("phone")}
+                  />
+                </div>
+                <p className="text-xs text-error">{form.formState.errors.phone?.message}</p>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="email" className={fieldLabel}>
+                  Correo (opcional)
+                </label>
+                <div className={insetShell}>
+                  <input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="cliente@email.com"
+                    className={inputBase}
+                    {...form.register("email")}
+                  />
+                </div>
+                <p className="text-xs text-on-surface-variant">
+                  Sin correo ni contraseña el cliente queda solo registrado; puedes habilitar acceso después.
+                </p>
+                <p className="text-xs text-error">{form.formState.errors.email?.message}</p>
+              </div>
+            </div>
+          </section>
+
+          <section className={sectionCard}>
+            <div className="mb-8 flex items-center gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-secondary/10">
+                <span className="material-symbols-outlined text-secondary" aria-hidden>
+                  location_on
+                </span>
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-on-surface">Acceso y ubicación</h2>
+                <p className="text-sm text-on-surface-variant">Ruta asignada y credenciales de la app</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              {isAdminView || isRouteManagerView ? (
+                <div className="space-y-2">
+                  <label htmlFor="routeId" className={fieldLabel}>
+                    Ruta
+                  </label>
+                  <div className={`${insetShell} relative flex items-center`}>
+                    <select
+                      id="routeId"
+                      className={`${inputBase} cursor-pointer appearance-none pr-10`}
+                      value={form.watch("routeId") ?? ""}
+                      onChange={(e) => form.setValue("routeId", e.target.value, { shouldValidate: true })}
+                    >
+                      <option value="">Seleccione una ruta activa</option>
+                      {managerRoutes.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name}
+                        </option>
+                      ))}
+                    </select>
+                    <span
+                      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant material-symbols-outlined"
+                      aria-hidden
+                    >
+                      expand_more
+                    </span>
+                  </div>
+                  <p className="text-xs text-error">{form.formState.errors.routeId?.message}</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label htmlFor="routeId-ro" className={fieldLabel}>
+                    Ruta
+                  </label>
+                  <div className={insetShell}>
+                    <input
+                      id="routeId-ro"
+                      readOnly
+                      className={inputBase}
+                      value="Ruta no disponible"
+                    />
+                  </div>
+                  <p className="text-xs text-error">{form.formState.errors.routeId?.message}</p>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label htmlFor="password" className={fieldLabel}>
+                  Contraseña (acceso app, opcional)
+                </label>
+                <div className={`${insetShell} flex items-center gap-2`}>
+                  <input
+                    id="password"
+                    type={passwordVisible ? "text" : "password"}
+                    autoComplete="new-password"
+                    placeholder="••••••••"
+                    className={inputBase}
+                    {...form.register("password")}
+                  />
+                  <button
+                    type="button"
+                    className="shrink-0 text-on-surface-variant transition-colors hover:text-on-surface"
+                    onClick={() => setPasswordVisible((v) => !v)}
+                    aria-label={passwordVisible ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  >
+                    <span className="material-symbols-outlined" aria-hidden>
+                      {passwordVisible ? "visibility" : "visibility_off"}
+                    </span>
+                  </button>
+                </div>
+                <p className="text-xs text-on-surface-variant">
+                  Mínimo 8 caracteres con mayúscula, minúscula, número y símbolo.
+                </p>
+                <p className="text-xs text-error">{form.formState.errors.password?.message}</p>
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <label htmlFor="address" className={fieldLabel}>
+                  Dirección (opcional)
+                </label>
+                <div className={`${insetShell} flex items-center`}>
+                  <span className="material-symbols-outlined mr-3 text-lg text-on-surface-variant" aria-hidden>
+                    map
+                  </span>
+                  <input
+                    id="address"
+                    type="text"
+                    autoComplete="street-address"
+                    placeholder="Calle 123 #45-67, ciudad"
+                    className={inputBase}
+                    {...form.register("address")}
+                  />
+                </div>
+                <p className="text-xs text-error">{form.formState.errors.address?.message}</p>
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <label htmlFor="description" className={fieldLabel}>
+                  Descripción (opcional)
+                </label>
+                <div className={insetShell}>
+                  <textarea
+                    id="description"
+                    rows={3}
+                    placeholder="Detalles adicionales sobre el cliente o el punto de cobro…"
+                    className={`${inputBase} resize-none`}
+                    {...form.register("description")}
+                  />
+                </div>
+                <p className="text-xs text-error">{form.formState.errors.description?.message}</p>
+              </div>
+            </div>
+          </section>
+
+          <div className="flex flex-col-reverse items-stretch justify-end gap-4 pt-2 sm:flex-row sm:items-center">
+            <Link
+              href="/clients"
+              className="rounded-xl border border-outline-variant/30 px-8 py-3 text-center text-sm font-semibold text-on-surface transition-all hover:bg-surface-container-highest active:scale-[0.98]"
+            >
+              Cancelar
+            </Link>
             <button
               type="submit"
               disabled={form.formState.isSubmitting}
-              className="w-full rounded-md bg-primary px-4 py-2 font-medium text-white disabled:opacity-50"
+              className="rounded-xl bg-gradient-to-br from-primary to-primary-container px-10 py-3 text-sm font-bold text-on-primary shadow-[0_8px_24px_rgba(105,246,184,0.2)] transition-all hover:shadow-[0_12px_32px_rgba(105,246,184,0.3)] active:scale-[0.98] disabled:opacity-50"
             >
-              {form.formState.isSubmitting ? "Creando..." : "Crear cliente"}
+              {form.formState.isSubmitting ? "Creando…" : "Crear cliente"}
             </button>
-          </form>
-        ) : null}
+          </div>
+        </form>
+      ) : null}
+
+      <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
+        <div className="relative overflow-hidden rounded-xl border border-outline-variant/5 bg-surface-container-high p-6 md:col-span-2">
+          <div
+            className="pointer-events-none absolute inset-y-0 right-0 w-1/2 bg-gradient-to-l from-primary/20 via-primary-container/10 to-transparent opacity-60"
+            aria-hidden
+          />
+          <div className="relative z-10 max-w-md">
+            <span className="mb-2 block text-[10px] font-bold uppercase tracking-[0.2em] text-primary">
+              Dato rápido
+            </span>
+            <h3 className="font-headline text-xl font-bold text-on-surface">
+              Datos correctos hoy, reportes confiables mañana.
+            </h3>
+          </div>
+        </div>
+        <div className="flex flex-col justify-center rounded-xl border border-outline-variant/5 bg-surface-container-high p-6 text-center">
+          <span className="material-symbols-outlined mb-2 text-4xl text-tertiary" aria-hidden>
+            shield_with_heart
+          </span>
+          <h3 className="text-sm font-bold text-on-surface">Privacidad</h3>
+          <p className="mt-1 text-[11px] text-on-surface-variant">
+            La información sensible se transmite de forma segura y se almacena con buenas prácticas de acceso.
+          </p>
+        </div>
       </div>
-    </section>
+    </div>
   );
 };
 
 export default ClientsNewPage;
-

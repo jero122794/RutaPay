@@ -3,7 +3,6 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
-import { parseISO } from "date-fns";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -13,7 +12,13 @@ import { z } from "zod";
 import api from "../../../../lib/api";
 import { getEffectiveRoles, pickPrimaryRole } from "../../../../lib/effective-roles";
 import { formatCOP } from "../../../../lib/formatters";
-import { formatBogotaDateFromString, getBogotaTodayKey, toBogotaDayKey, toBogotaDayKeyFromDate } from "../../../../lib/bogota";
+import {
+  formatBogotaDateFromString,
+  getBogotaTodayKey,
+  parseApiDateString,
+  toBogotaDayKey,
+  toBogotaDayKeyFromDate
+} from "../../../../lib/bogota";
 import { useAuthStore, type UserRole } from "../../../../store/authStore";
 import TablePagination from "../../../../components/ui/TablePagination";
 import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../../lib/page-size";
@@ -112,7 +117,7 @@ const loanTermsSchema = z.object({
 type LoanTermsFormValues = z.infer<typeof loanTermsSchema>;
 
 const formatBogotaDateTime = (iso: string): string => {
-  const d = parseISO(iso);
+  const d = parseApiDateString(iso);
   return new Intl.DateTimeFormat("es-CO", {
     timeZone: "America/Bogota",
     day: "2-digit",
@@ -203,6 +208,7 @@ const LoanDetailPage = (): JSX.Element => {
   const router = useRouter();
   const loanId = params.id;
   const user = useAuthStore((state) => state.user);
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const clientDisplayNameForClientRole = role === "CLIENT" ? user?.name ?? "-" : "-";
   const queryClient = useQueryClient();
@@ -218,7 +224,7 @@ const LoanDetailPage = (): JSX.Element => {
       const response = await api.get<LoanResponse>(`/loans/${loanId}`);
       return response.data;
     },
-    enabled: Boolean(loanId)
+    enabled: hasAuthHydrated && Boolean(user) && Boolean(loanId)
   });
 
   const clientQuery = useQuery({
@@ -228,7 +234,11 @@ const LoanDetailPage = (): JSX.Element => {
       const response = await api.get<{ data: ClientDetail }>(`/clients/${clientId}`);
       return response.data;
     },
-    enabled: role !== "CLIENT" && Boolean(loanQuery.data?.data.clientId)
+    enabled:
+      hasAuthHydrated &&
+      Boolean(user) &&
+      role !== "CLIENT" &&
+      Boolean(loanQuery.data?.data.clientId)
   });
 
   const scheduleQuery = useQuery({
@@ -237,7 +247,7 @@ const LoanDetailPage = (): JSX.Element => {
       const response = await api.get<ScheduleResponse>(`/loans/${loanId}/schedule`);
       return response.data;
     },
-    enabled: Boolean(loanId)
+    enabled: hasAuthHydrated && Boolean(user) && Boolean(loanId)
   });
 
   const paymentsHistoryQuery = useQuery({
@@ -248,7 +258,7 @@ const LoanDetailPage = (): JSX.Element => {
       });
       return response.data;
     },
-    enabled: Boolean(loanId) && canSeePaymentHistory
+    enabled: hasAuthHydrated && Boolean(user) && Boolean(loanId) && canSeePaymentHistory
   });
 
   const totals = useMemo(() => {

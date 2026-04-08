@@ -44,6 +44,7 @@ export const Topbar = ({ onOpenSidebar }: TopbarProps): JSX.Element => {
   const router = useRouter();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const clearUser = useAuthStore((state) => state.clearUser);
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
 
@@ -97,7 +98,7 @@ export const Topbar = ({ onOpenSidebar }: TopbarProps): JSX.Element => {
       const response = await api.get<NotificationsResponse>("/notifications");
       return response.data;
     },
-    enabled: Boolean(user)
+    enabled: Boolean(user) && hasAuthHydrated
   });
 
   const unreadCount = useMemo((): number => {

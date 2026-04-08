@@ -46,6 +46,7 @@ const Sidebar = ({ open, onClose }: SidebarProps): JSX.Element => {
   const router = useRouter();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const clearUser = useAuthStore((state) => state.clearUser);
 
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
@@ -60,7 +61,7 @@ const Sidebar = ({ open, onClose }: SidebarProps): JSX.Element => {
       const response = await api.get<NotificationsResponse>("/notifications");
       return response.data;
     },
-    enabled: Boolean(user)
+    enabled: Boolean(user) && hasAuthHydrated
   });
 
   const unreadCount = useMemo((): number => {

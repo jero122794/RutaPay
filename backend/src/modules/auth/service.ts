@@ -15,6 +15,7 @@ import {
 } from "../../shared/login-security.js";
 import { assertBusinessLicenseActiveForOperationalRoles, getBusinessLicenseStatus } from "../../shared/business-license.js";
 import { hashRefreshToken } from "../../shared/token-hash.js";
+import { loadRolesByUserId } from "../../shared/load-user-roles.js";
 import { loadModulesForRoles } from "../../shared/role-modules.js";
 import type { LoginInput, RegisterInput } from "./schema.js";
 
@@ -66,14 +67,6 @@ const invalidCreds = (): FastifyError => {
   err.statusCode = 401;
   err.name = "Unauthorized";
   return err;
-};
-
-const loadRolesByUserId = async (userId: string): Promise<RoleName[]> => {
-  const userRoles = await prisma.userRole.findMany({
-    where: { userId },
-    include: { role: true }
-  });
-  return userRoles.map((entry) => entry.role.name);
 };
 
 const buildAuthUserPayload = async (user: User, roles: RoleName[]): Promise<AuthUserPayload> => {

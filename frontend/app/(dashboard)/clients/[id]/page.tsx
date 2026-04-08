@@ -6,7 +6,6 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
-import { parseISO } from "date-fns";
 import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -14,9 +13,7 @@ import api from "../../../../lib/api";
 import { getEffectiveRoles, pickPrimaryRole } from "../../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../../store/authStore";
 import { formatCOP } from "../../../../lib/formatters";
-import { formatBogotaDateFromString } from "../../../../lib/bogota";
-
-const LOANS_WIDE_LIMIT = 2000;
+import { formatBogotaDateFromString, parseApiDateString } from "../../../../lib/bogota";
 
 interface ClientDetail {
   id: string;
@@ -174,7 +171,7 @@ const pickPrimaryLoan = (loans: LoanItem[]): LoanItem | null => {
 };
 
 const formatBogotaDateTime = (iso: string): string => {
-  const d = parseISO(iso);
+  const d = parseApiDateString(iso);
   return new Intl.DateTimeFormat("es-CO", {
     timeZone: "America/Bogota",
     day: "2-digit",
@@ -216,6 +213,7 @@ const healthLabel = (score: number): string => {
 const ClientProfilePage = (): JSX.Element => {
   const params = useParams<{ id: string }>();
   const user = useAuthStore((state) => state.user);
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const queryClient = useQueryClient();
   const canEditClient = role === "SUPER_ADMIN" || role === "ADMIN" || role === "ROUTE_MANAGER";
@@ -228,18 +226,16 @@ const ClientProfilePage = (): JSX.Element => {
       const response = await api.get<ClientResponse>(`/clients/${clientId}`);
       return response.data;
     },
-    enabled: Boolean(clientId)
+    enabled: hasAuthHydrated && Boolean(user) && Boolean(clientId)
   });
 
   const loansQuery = useQuery({
-    queryKey: ["loans-wide", 1, LOANS_WIDE_LIMIT],
+    queryKey: ["loans-all-for-client-detail"],
     queryFn: async (): Promise<ListResponse<LoanItem>> => {
-      const response = await api.get<ListResponse<LoanItem>>("/loans", {
-        params: { page: 1, limit: LOANS_WIDE_LIMIT }
-      });
+      const response = await api.get<ListResponse<LoanItem>>("/loans");
       return response.data;
     },
-    enabled: Boolean(clientId)
+    enabled: hasAuthHydrated && Boolean(user) && Boolean(clientId)
   });
 
   const clientLoans = useMemo(() => {
@@ -258,18 +254,16 @@ const ClientProfilePage = (): JSX.Element => {
       const response = await api.get<ScheduleResponse>(`/loans/${primaryLoan?.id}/schedule`);
       return response.data;
     },
-    enabled: Boolean(primaryLoan?.id) && needsSchedule
+    enabled: hasAuthHydrated && Boolean(user) && Boolean(primaryLoan?.id) && needsSchedule
   });
 
   const paymentsQuery = useQuery({
-    queryKey: ["payments-by-loan", primaryLoan?.id, 1, 50],
+    queryKey: ["payments-by-loan-all", primaryLoan?.id],
     queryFn: async (): Promise<PaymentsByLoanResponse> => {
-      const response = await api.get<PaymentsByLoanResponse>(`/payments/loan/${primaryLoan?.id}`, {
-        params: { page: 1, limit: 50 }
-      });
+      const response = await api.get<PaymentsByLoanResponse>(`/payments/loan/${primaryLoan?.id}`);
       return response.data;
     },
-    enabled: Boolean(primaryLoan?.id)
+    enabled: hasAuthHydrated && Boolean(user) && Boolean(primaryLoan?.id)
   });
 
   const schedule = scheduleQuery.data?.data ?? [];
@@ -325,7 +319,7 @@ const ClientProfilePage = (): JSX.Element => {
       return "Sin historial";
     }
     const oldest = [...clientLoans].sort((a, b) => (a.createdAt > b.createdAt ? 1 : -1))[0];
-    const d = parseISO(oldest.createdAt);
+    const d = parseApiDateString(oldest.createdAt);
     return new Intl.DateTimeFormat("es-CO", { month: "short", year: "numeric" }).format(d);
   }, [clientLoans]);
 

@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../../../../lib/api";
 import { getEffectiveRoles, pickPrimaryRole } from "../../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../../store/authStore";
+import { parseApiDateString } from "../../../../lib/bogota";
 import { formatCOP } from "../../../../lib/formatters";
 import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS, type PageSize } from "../../../../lib/page-size";
 
@@ -69,7 +70,7 @@ const formatCompactCOP = (value: number): string => {
 };
 
 const formatBogotaDateTime = (value: string | Date): string => {
-  const d = typeof value === "string" ? new Date(value) : value;
+  const d = typeof value === "string" ? parseApiDateString(value) : value;
   if (Number.isNaN(d.getTime())) return "—";
   return new Intl.DateTimeFormat("es-CO", {
     timeZone: "America/Bogota",
@@ -111,6 +112,7 @@ const RouteDetailPage = (): JSX.Element => {
   const params = useParams<{ id: string }>();
   const routeId = params.id;
   const user = useAuthStore((state) => state.user);
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const canView = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
   const canCreditRoute = role === "ADMIN" || role === "SUPER_ADMIN";
@@ -121,7 +123,7 @@ const RouteDetailPage = (): JSX.Element => {
       const response = await api.get<RouteDetailResponse>(`/routes/${routeId}`);
       return response.data;
     },
-    enabled: canView && Boolean(routeId)
+    enabled: hasAuthHydrated && Boolean(user) && canView && Boolean(routeId)
   });
 
   const summaryQuery = useQuery({
@@ -130,7 +132,7 @@ const RouteDetailPage = (): JSX.Element => {
       const response = await api.get<RouteSummaryResponse>(`/routes/${routeId}/summary`);
       return response.data;
     },
-    enabled: canView && Boolean(routeId)
+    enabled: hasAuthHydrated && Boolean(user) && canView && Boolean(routeId)
   });
 
   const [paymentsPage, setPaymentsPage] = useState(1);

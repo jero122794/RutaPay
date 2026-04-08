@@ -14,8 +14,6 @@ import api from "../../../lib/api";
 import { formatCOP } from "../../../lib/formatters";
 import { formatBogotaDateFromString } from "../../../lib/bogota";
 
-const WIDE_LIMIT = 2000;
-
 interface ClientItem {
   id: string;
   name: string;
@@ -122,6 +120,7 @@ const pickPrimaryLoan = (loans: LoanItem[]): LoanItem | null => {
 
 const ClientsPage = (): JSX.Element => {
   const user = useAuthStore((state) => state.user);
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const canCreate = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
 
@@ -131,37 +130,32 @@ const ClientsPage = (): JSX.Element => {
   const [accountFilter, setAccountFilter] = useState<AccountFilter>("all");
   const [search, setSearch] = useState("");
 
+  // No enviar page/limit: el backend solo acepta 10|20|50|100 y sin params devuelve el listado completo.
   const clientsQuery = useQuery({
-    queryKey: ["clients-list", 1, WIDE_LIMIT],
+    queryKey: ["clients-list", "all"],
     queryFn: async (): Promise<ListResponse<ClientItem>> => {
-      const response = await api.get<ListResponse<ClientItem>>("/clients", {
-        params: { page: 1, limit: WIDE_LIMIT }
-      });
+      const response = await api.get<ListResponse<ClientItem>>("/clients");
       return response.data;
     },
-    enabled: role !== "CLIENT"
+    enabled: hasAuthHydrated && Boolean(user) && role !== "CLIENT"
   });
 
   const loansQuery = useQuery({
-    queryKey: ["loans-wide", 1, WIDE_LIMIT],
+    queryKey: ["loans-wide", "all"],
     queryFn: async (): Promise<ListResponse<LoanItem>> => {
-      const response = await api.get<ListResponse<LoanItem>>("/loans", {
-        params: { page: 1, limit: WIDE_LIMIT }
-      });
+      const response = await api.get<ListResponse<LoanItem>>("/loans");
       return response.data;
     },
-    enabled: role !== "CLIENT"
+    enabled: hasAuthHydrated && Boolean(user) && role !== "CLIENT"
   });
 
   const paymentsQuery = useQuery({
-    queryKey: ["payments-wide", 1, 500],
+    queryKey: ["payments-wide", "all"],
     queryFn: async (): Promise<ListResponse<PaymentItem>> => {
-      const response = await api.get<ListResponse<PaymentItem>>("/payments", {
-        params: { page: 1, limit: 500 }
-      });
+      const response = await api.get<ListResponse<PaymentItem>>("/payments");
       return response.data;
     },
-    enabled: role !== "CLIENT"
+    enabled: hasAuthHydrated && Boolean(user) && role !== "CLIENT"
   });
 
   const loansByClientId = useMemo(() => {
@@ -363,23 +357,26 @@ const ClientsPage = (): JSX.Element => {
                 : "Lista y seguimiento de prestatarios."}
             </p>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             {canCreate ? (
               <>
                 <Link
-                  href="/loans/new"
-                  className="flex items-center gap-2 rounded-xl bg-gradient-to-br from-primary to-primary-container px-6 py-3 text-sm font-bold text-on-primary shadow-lg shadow-primary/10 transition-all hover:brightness-110 active:scale-95"
+                  href="/clients/new"
+                  className="order-1 hidden items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-primary to-primary-container px-8 py-4 text-base font-bold text-on-primary shadow-lg shadow-primary/15 transition-all hover:brightness-110 active:scale-[0.98] md:flex md:justify-start"
                 >
-                  <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>
+                  <span className="material-symbols-outlined text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>
+                    person_add
+                  </span>
+                  Crear cliente
+                </Link>
+                <Link
+                  href="/loans/new"
+                  className="order-2 flex w-full items-center justify-center gap-2 rounded-xl border border-outline-variant/30 bg-black px-6 py-3 text-sm font-bold text-on-surface transition-colors hover:bg-neutral-900 active:scale-[0.98] md:w-auto md:shrink-0"
+                >
+                  <span className="material-symbols-outlined text-xl text-on-surface" style={{ fontVariationSettings: "'FILL' 1" }}>
                     add
                   </span>
                   Nuevo préstamo
-                </Link>
-                <Link
-                  href="/clients/new"
-                  className="rounded-xl border border-outline-variant/30 bg-surface-container-high px-5 py-3 text-sm font-bold text-on-surface transition-colors hover:bg-surface-bright"
-                >
-                  Nuevo cliente
                 </Link>
               </>
             ) : null}
@@ -771,14 +768,14 @@ const ClientsPage = (): JSX.Element => {
       {canCreate ? (
         <Link
           href="/clients/new"
-          className="group fixed bottom-8 right-8 z-50 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary-container text-on-primary shadow-2xl shadow-primary/40 transition-all hover:scale-105 active:scale-95"
-          title="Añadir cliente"
+          className="group fixed bottom-24 right-6 z-50 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary-container text-on-primary shadow-2xl shadow-primary/40 transition-all hover:scale-105 active:scale-95 md:hidden"
+          title="Crear cliente"
         >
           <span className="material-symbols-outlined text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>
             person_add
           </span>
           <span className="pointer-events-none absolute right-full mr-4 whitespace-nowrap rounded-xl border border-outline-variant/10 bg-surface-bright px-4 py-2 text-xs font-bold opacity-0 shadow-xl transition-opacity group-hover:opacity-100">
-            Añadir cliente
+            Crear cliente
           </span>
         </Link>
       ) : null}

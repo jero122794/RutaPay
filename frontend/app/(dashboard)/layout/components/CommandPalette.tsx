@@ -103,6 +103,7 @@ const getErrorMessage = (error: unknown): string => {
 export const CommandPalette = ({ open, onClose }: CommandPaletteProps): JSX.Element | null => {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
 
   const [query, setQuery] = useState("");
@@ -118,7 +119,7 @@ export const CommandPalette = ({ open, onClose }: CommandPaletteProps): JSX.Elem
       const response = await api.get<ListResponse<ClientItem>>("/clients");
       return response.data;
     },
-    enabled: open && canSeeClients
+    enabled: open && canSeeClients && hasAuthHydrated && Boolean(user)
   });
 
   const loansQuery = useQuery({
@@ -127,7 +128,7 @@ export const CommandPalette = ({ open, onClose }: CommandPaletteProps): JSX.Elem
       const response = await api.get<ListResponse<LoanItem>>("/loans");
       return response.data;
     },
-    enabled: open
+    enabled: open && hasAuthHydrated && Boolean(user)
   });
 
   const routesQuery = useQuery({
@@ -140,7 +141,7 @@ export const CommandPalette = ({ open, onClose }: CommandPaletteProps): JSX.Elem
       const response = await api.get<ListResponse<RouteItem>>("/routes");
       return response.data;
     },
-    enabled: open && canSeeRoutes
+    enabled: open && canSeeRoutes && hasAuthHydrated && Boolean(user)
   });
 
   useEffect(() => {

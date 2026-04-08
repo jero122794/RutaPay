@@ -55,7 +55,8 @@ const config: Config = {
         "surface-dim": "#05080f",
         "surface-bright": "#22272f",
         "primary-container": "#06b77f",
-        "on-primary": "#005a3c",
+        // Text on solid mint / primary-gradient buttons (contrast: black on green)
+        "on-primary": "#000000",
         "secondary-container": "#005ac2",
         tertiary: "#ffb148",
         "tertiary-container": "#f8a010",

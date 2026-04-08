@@ -80,11 +80,11 @@ const calculateMonthlyEqualPrincipalInterest = (input: {
   const schedule: ScheduleItem[] = [];
   for (let i = 0; i < n; i += 1) {
     const dueDate = new Date(startDate);
-    dueDate.setDate(dueDate.getDate() + 30 * (i + 1));
+    dueDate.setUTCDate(dueDate.getUTCDate() + 30 * (i + 1));
     schedule.push({
       installmentNumber: i + 1,
       dueDate,
-      amount: amounts[i],
+      amount: amounts[i] ?? 0,
       status: "PENDING"
     });
   }
@@ -134,13 +134,13 @@ export const calculateLoan = (input: LoanInput): LoanResult => {
     const cursorDate = new Date(startDate);
     for (let i = 1; i <= installmentCount; i += 1) {
       if (i === 1) {
-        while (cursorDate.getDay() === 0 || cursorDate.getDay() === 6) {
-          cursorDate.setDate(cursorDate.getDate() + 1);
+        while (cursorDate.getUTCDay() === 0 || cursorDate.getUTCDay() === 6) {
+          cursorDate.setUTCDate(cursorDate.getUTCDate() + 1);
         }
       } else {
-        cursorDate.setDate(cursorDate.getDate() + 1);
-        while (cursorDate.getDay() === 0 || cursorDate.getDay() === 6) {
-          cursorDate.setDate(cursorDate.getDate() + 1);
+        cursorDate.setUTCDate(cursorDate.getUTCDate() + 1);
+        while (cursorDate.getUTCDay() === 0 || cursorDate.getUTCDay() === 6) {
+          cursorDate.setUTCDate(cursorDate.getUTCDate() + 1);
         }
       }
 
@@ -154,7 +154,7 @@ export const calculateLoan = (input: LoanInput): LoanResult => {
   } else {
     for (let i = 1; i <= installmentCount; i += 1) {
       const dueDate = new Date(startDate);
-      dueDate.setDate(dueDate.getDate() + daysBetween * (i - 1));
+      dueDate.setUTCDate(dueDate.getUTCDate() + daysBetween * (i - 1));
       schedule.push({
         installmentNumber: i,
         dueDate,

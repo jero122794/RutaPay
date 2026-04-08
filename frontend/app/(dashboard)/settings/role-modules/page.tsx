@@ -92,6 +92,7 @@ const ModuleSwitch = ({
 
 const RoleModulesPage = (): JSX.Element => {
   const user = useAuthStore((state) => state.user);
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const queryClient = useQueryClient();
 
@@ -104,7 +105,7 @@ const RoleModulesPage = (): JSX.Element => {
       const res = await api.get<{ data: Record<string, string[]> }>("/role-modules");
       return res.data.data;
     },
-    enabled: role === "SUPER_ADMIN"
+    enabled: hasAuthHydrated && Boolean(user) && role === "SUPER_ADMIN"
   });
 
   useEffect(() => {

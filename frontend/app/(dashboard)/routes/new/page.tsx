@@ -60,6 +60,7 @@ const RoutesNewPage = (): JSX.Element => {
   const router = useRouter();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
 
   const canCreate = role === "ADMIN" || role === "SUPER_ADMIN";
@@ -70,7 +71,7 @@ const RoutesNewPage = (): JSX.Element => {
       const response = await api.get<ListResponse<UserItem>>("/users");
       return response.data;
     },
-    enabled: canCreate
+    enabled: hasAuthHydrated && Boolean(user) && canCreate
   });
 
   // Note: no need to filter by assigned routes since we support multiple routes per ROUTE_MANAGER.
@@ -198,7 +199,7 @@ const RoutesNewPage = (): JSX.Element => {
             <button
               type="submit"
               disabled={createMutation.isPending || !form.formState.isValid}
-              className="w-full rounded-md bg-primary px-4 py-2 font-medium text-white disabled:opacity-50"
+              className="w-full rounded-md bg-primary px-4 py-2 font-medium text-on-primary disabled:opacity-50"
             >
               {createMutation.isPending ? "Creando..." : "Crear ruta"}
             </button>

@@ -3,7 +3,6 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import axios from "axios";
-import { parseISO } from "date-fns";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -15,7 +14,7 @@ import { getEffectiveRoles, pickPrimaryRole } from "../../../../lib/effective-ro
 import { useAuthStore, type UserRole } from "../../../../store/authStore";
 import { calculateLoan, type LoanFrequency, type LoanInput } from "../../../../lib/loan-calculator";
 import { formatCOP } from "../../../../lib/formatters";
-import { formatBogotaDate, getBogotaYMD } from "../../../../lib/bogota";
+import { formatBogotaDate, getBogotaYMD, parseBogotaDateOnlyToUTC } from "../../../../lib/bogota";
 import TablePagination from "../../../../components/ui/TablePagination";
 import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../../lib/page-size";
 
@@ -73,6 +72,7 @@ const LoansNewPageInner = (): JSX.Element => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const user = useAuthStore((state) => state.user);
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
 
   const canCreate = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
@@ -82,7 +82,7 @@ const LoansNewPageInner = (): JSX.Element => {
       const response = await api.get<ListResponse<ClientItem>>("/clients");
       return response.data;
     },
-    enabled: canCreate
+    enabled: hasAuthHydrated && Boolean(user) && canCreate
   });
 
   const clients = useMemo<ClientItem[]>(() => {
@@ -178,7 +178,10 @@ const LoansNewPageInner = (): JSX.Element => {
   }, [clientSearchOptions, clientSearchTerm]);
 
   const preview = useMemo(() => {
-    const startDate = parseISO(startDateISO);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDateISO)) {
+      return null;
+    }
+    const startDate = parseBogotaDateOnlyToUTC(startDateISO);
 
     const input: LoanInput = {
       principal,

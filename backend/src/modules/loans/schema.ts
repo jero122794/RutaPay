@@ -1,5 +1,20 @@
 // backend/src/modules/loans/schema.ts
 import { z } from "zod";
+import { parseBogotaDateOnlyToUTC } from "../../shared/bogota-date.js";
+
+/** Avoids JS/Zod treating YYYY-MM-DD as UTC midnight (wrong calendar day in CO). */
+const loanStartDateSchema = z.preprocess((val: unknown) => {
+  if (val instanceof Date) {
+    return val;
+  }
+  if (typeof val === "string") {
+    const t = val.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+      return parseBogotaDateOnlyToUTC(t);
+    }
+  }
+  return val;
+}, z.coerce.date());
 
 export const loanIdParamsSchema = z.object({
   id: z.string().cuid()
@@ -13,7 +28,7 @@ export const createLoanSchema = z.object({
   interestRate: z.number().int().positive(),
   installmentCount: z.number().int().positive(),
   frequency: z.enum(["DAILY", "WEEKLY", "BIWEEKLY", "MONTHLY"]),
-  startDate: z.coerce.date(),
+  startDate: loanStartDateSchema,
   excludeWeekends: z.boolean().optional().default(false)
 });
 

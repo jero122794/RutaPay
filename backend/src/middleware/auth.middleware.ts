@@ -3,6 +3,7 @@ import type { AppModule, RoleName } from "@prisma/client";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import jwt from "jsonwebtoken";
 import { assertBusinessLicenseActiveForOperationalRoles } from "../shared/business-license.js";
+import { loadRolesByUserId } from "../shared/load-user-roles.js";
 import { loadModulesForRoles } from "../shared/role-modules.js";
 import { env } from "../shared/env.js";
 
@@ -30,17 +31,21 @@ export const authGuard = async (request: FastifyRequest, reply: FastifyReply): P
       modules?: unknown;
     };
 
-    const roles = Array.isArray(payload.roles) ? (payload.roles as RoleName[]) : [];
-    let modules: AppModule[] = Array.isArray(payload.modules) ? (payload.modules as AppModule[]) : [];
-
-    // Legacy or short-lived tokens may omit modules; moduleGuard would 403. Recompute from roles + DB like refresh/login.
-    if (modules.length === 0 && roles.length > 0) {
-      modules = await loadModulesForRoles(roles);
-    }
-
     const sub = typeof payload.sub === "string" ? payload.sub : "";
     if (!sub) {
       throw new Error("Invalid token.");
+    }
+
+    const rolesFromToken = Array.isArray(payload.roles) ? (payload.roles as RoleName[]) : [];
+    const rolesFromDb = await loadRolesByUserId(sub);
+    // Prefer DB roles so roleGuard/moduleGuard match current assignments (JWT may be stale until refresh).
+    const roles: RoleName[] = rolesFromDb.length > 0 ? rolesFromDb : rolesFromToken;
+
+    let modules: AppModule[] = [];
+    if (roles.length > 0) {
+      modules = await loadModulesForRoles(roles);
+    } else if (Array.isArray(payload.modules)) {
+      modules = payload.modules as AppModule[];
     }
 
     request.authUser = {

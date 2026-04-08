@@ -80,6 +80,26 @@ const formatCompactCOP = (value: number): string => {
 
 type StepVariant = "done" | "current" | "pending" | "alert";
 
+/** Haystack per row: cliente, IDs, monto, palabras de estado (ES/EN) y enum en minúsculas. */
+const loanSearchHayForRow = (loan: LoanItem, clientName: string): string => {
+  const statusBits: Record<LoanItem["status"], string> = {
+    ACTIVE: "activo activa active",
+    COMPLETED: "finalizado finalizada completado completada completed",
+    DEFAULTED: "mora defaulted vencido vencida en mora",
+    RESTRUCTURED: "reestructurado reestructurada restructured"
+  };
+  return [
+    clientName,
+    loan.id,
+    loan.clientId,
+    formatCOP(loan.totalAmount),
+    statusBits[loan.status],
+    loan.status.toLowerCase()
+  ]
+    .join(" ")
+    .toLowerCase();
+};
+
 const statusPill = (status: LoanItem["status"]): JSX.Element => {
   switch (status) {
     case "ACTIVE":
@@ -244,13 +264,17 @@ const LoansPage = (): JSX.Element => {
 
   const filteredRows = useMemo(() => {
     const rows = loansQuery.data?.data ?? [];
-    const q = search.trim().toLowerCase();
-    if (!q) return rows;
+    const tokens = search
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (tokens.length === 0) return rows;
     return rows.filter((loan) => {
-      const name =
+      const clientName =
         role === "CLIENT" ? clientDisplayNameForClientRole : clientNameById[loan.clientId] ?? "";
-      const hay = `${name} ${loan.id} ${loan.clientId} ${formatCOP(loan.totalAmount)}`.toLowerCase();
-      return hay.includes(q);
+      const hay = loanSearchHayForRow(loan, clientName);
+      return tokens.every((t) => hay.includes(t));
     });
   }, [clientDisplayNameForClientRole, clientNameById, loansQuery.data, role, search]);
 
@@ -301,10 +325,11 @@ const LoansPage = (): JSX.Element => {
             </div>
             <input
               className="block w-full rounded-xl border-none bg-surface-container-lowest py-2.5 pl-10 pr-3 text-on-surface placeholder:text-on-surface-variant focus:ring-2 focus:ring-primary/50"
-              placeholder="Buscar préstamos, clientes o ID…"
+              placeholder="Cliente, ID, monto… o estado (activo, mora, finalizado…)"
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              aria-label="Buscar préstamos por cliente, ID, monto o estado"
             />
           </div>
           {canCreate ? (
@@ -484,7 +509,7 @@ const LoansPage = (): JSX.Element => {
               </div>
               {filteredRows.length === 0 && search.trim() ? (
                 <p className="border-t border-outline-variant/10 px-6 py-4 text-sm text-on-surface-variant">
-                  Ningún préstamo coincide con la búsqueda en esta página.
+                  Ningún préstamo coincide con la búsqueda (cliente, ID, monto o estado) en esta página.
                 </p>
               ) : null}
               <div className="flex flex-col gap-3 border-t border-outline-variant/10 bg-surface-container-high/30 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">

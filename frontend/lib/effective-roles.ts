@@ -57,6 +57,9 @@ export const parseRolesFromStoredAccessToken = (): UserRole[] => {
  *
  * JWT roles are ignored until `hasAuthHydrated` is true so the first client render matches SSR
  * (no localStorage on the server). Prevents hydration mismatches on role-gated <Link> trees.
+ *
+ * TanStack Query `enabled` flags should include `hasAuthHydrated` (and usually `user`) so API
+ * calls do not run with stale role hints before this merge runs.
  */
 export const getEffectiveRoles = (user: { roles?: UserRole[] } | null): UserRole[] => {
   const fromStore = user?.roles ?? [];

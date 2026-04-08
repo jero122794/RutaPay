@@ -27,7 +27,8 @@ const DEFAULT_MODULES_BY_ROLE: Record<Exclude<RoleName, "SUPER_ADMIN">, AppModul
     "NOTIFICATIONS",
     "USERS"
   ],
-  ROUTE_MANAGER: ["OVERVIEW", "CLIENTS", "LOANS", "PAYMENTS", "TREASURY", "NOTIFICATIONS"],
+  // ROUTES: required for /routes/me, /routes/:id, /routes/:id/summary (roleGuard still blocks list-all /routes for non-admin).
+  ROUTE_MANAGER: ["OVERVIEW", "ROUTES", "CLIENTS", "LOANS", "PAYMENTS", "TREASURY", "NOTIFICATIONS"],
   CLIENT: ["OVERVIEW", "LOANS", "PAYMENTS", "NOTIFICATIONS"]
 };
 

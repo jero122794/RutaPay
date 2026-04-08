@@ -108,6 +108,7 @@ type AssignRolesValues = z.infer<typeof assignRolesSchemaSuper>;
 
 const UsersPage = (): JSX.Element => {
   const user = useAuthStore((state) => state.user);
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const queryClient = useQueryClient();
 
@@ -124,7 +125,7 @@ const UsersPage = (): JSX.Element => {
       });
       return response.data;
     },
-    enabled: role === "SUPER_ADMIN" || role === "ADMIN"
+    enabled: hasAuthHydrated && Boolean(user) && (role === "SUPER_ADMIN" || role === "ADMIN")
   });
 
   useEffect(() => {

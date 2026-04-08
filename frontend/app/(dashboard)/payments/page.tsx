@@ -104,19 +104,14 @@ const paymentFormSchema = z.object({
 });
 
 const PaymentsPage = (): JSX.Element => {
-  const [clientReady, setClientReady] = useState(false);
-  useEffect(() => {
-    setClientReady(true);
-  }, []);
-
   const user = useAuthStore((state) => state.user);
-  // Avoid hydration mismatch: server has no localStorage/JWT merge; first paint must match server.
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const roles = useMemo((): UserRole[] => {
-    if (!clientReady) {
+    if (!hasAuthHydrated) {
       return [];
     }
     return getEffectiveRoles(user);
-  }, [clientReady, user?.roles, user?.id]);
+  }, [hasAuthHydrated, user]);
   const hasRole = (r: UserRole): boolean => roles.includes(r);
   const rolesCacheKey = useMemo(() => [...roles].sort().join(","), [roles]);
   const queryClient = useQueryClient();
@@ -131,7 +126,7 @@ const PaymentsPage = (): JSX.Element => {
       const response = await api.get<ListResponse<ClientItem>>("/clients");
       return response.data;
     },
-    enabled: canRegister
+    enabled: hasAuthHydrated && Boolean(user) && canRegister
   });
 
   const clientNameById = useMemo<Record<string, string>>(() => {
@@ -148,7 +143,8 @@ const PaymentsPage = (): JSX.Element => {
     queryFn: async (): Promise<ListResponse<LoanItem>> => {
       const response = await api.get<ListResponse<LoanItem>>("/loans");
       return response.data;
-    }
+    },
+    enabled: hasAuthHydrated && Boolean(user)
   });
 
   const [selectedLoanId, setSelectedLoanId] = useState<string>("");
@@ -208,7 +204,7 @@ const PaymentsPage = (): JSX.Element => {
       const response = await api.get<ScheduleResponse>(`/loans/${effectiveLoanId}/schedule`);
       return response.data;
     },
-    enabled: Boolean(effectiveLoanId) && canRegister
+    enabled: hasAuthHydrated && Boolean(user) && Boolean(effectiveLoanId) && canRegister
   });
 
   const [selectedInstallmentNumber, setSelectedInstallmentNumber] = useState<number | "">("");
@@ -240,7 +236,7 @@ const PaymentsPage = (): JSX.Element => {
       });
       return response.data;
     },
-    enabled: canRegister
+    enabled: hasAuthHydrated && Boolean(user) && canRegister
   });
 
   const clientPaymentsQuery = useQuery({
@@ -251,7 +247,7 @@ const PaymentsPage = (): JSX.Element => {
       });
       return response.data;
     },
-    enabled: isClientView && Boolean(effectiveLoanId)
+    enabled: hasAuthHydrated && Boolean(user) && isClientView && Boolean(effectiveLoanId)
   });
 
   useEffect(() => {

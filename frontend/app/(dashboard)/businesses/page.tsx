@@ -53,6 +53,7 @@ type CreateForm = z.infer<typeof createSchema>;
 
 const BusinessesPage = (): JSX.Element => {
   const user = useAuthStore((state) => state.user);
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -64,7 +65,7 @@ const BusinessesPage = (): JSX.Element => {
       const res = await api.get<{ data: BusinessRow[] }>("/businesses");
       return res.data.data;
     },
-    enabled: role === "SUPER_ADMIN"
+    enabled: hasAuthHydrated && Boolean(user) && role === "SUPER_ADMIN"
   });
 
   const form = useForm<CreateForm>({

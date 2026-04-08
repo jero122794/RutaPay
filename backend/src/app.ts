@@ -61,7 +61,9 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   await app.register(cookie);
   await app.register(cors, {
     origin: env.CORS_ORIGIN,
-    credentials: true
+    credentials: true,
+    // Default is only GET,HEAD,POST; without PUT/PATCH/DELETE preflight succeeds but the real request is blocked → Axios "Network Error".
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
   });
   await app.register(rateLimit, {
     global: false,

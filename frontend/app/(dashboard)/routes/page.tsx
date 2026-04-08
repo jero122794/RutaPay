@@ -86,6 +86,7 @@ const statusPill = (kind: RouteStatusKind): JSX.Element => {
 
 const RoutesPage = (): JSX.Element => {
   const user = useAuthStore((state) => state.user);
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const canView = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
   const canCreate = role === "ADMIN" || role === "SUPER_ADMIN";
@@ -103,18 +104,16 @@ const RoutesPage = (): JSX.Element => {
       });
       return response.data;
     },
-    enabled: canView
+    enabled: hasAuthHydrated && Boolean(user) && canView
   });
 
   const routesWideQuery = useQuery({
     queryKey: ["routes-list-wide-stats", routesEndpoint],
     queryFn: async (): Promise<ListResponse<RouteItem>> => {
-      const response = await api.get<ListResponse<RouteItem>>(routesEndpoint, {
-        params: { page: 1, limit: 2000 }
-      });
+      const response = await api.get<ListResponse<RouteItem>>(routesEndpoint);
       return response.data;
     },
-    enabled: canView
+    enabled: hasAuthHydrated && Boolean(user) && canView
   });
 
   useEffect(() => {
