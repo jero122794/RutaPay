@@ -136,14 +136,15 @@ const LoginPage = (): JSX.Element => {
         </div>
       </section>
 
-      <main className="flex w-full flex-col items-center justify-center bg-surface p-6 sm:p-8 lg:w-1/2">
-        <div className="auth-form w-full max-w-md space-y-10">
-          <div className="text-center lg:text-left">
-            <h3 className="mb-2 font-headline text-3xl font-bold text-on-surface">Iniciar sesión</h3>
-            <p className="font-medium text-on-surface-variant">Ingresa tu cédula o correo y contraseña para acceder.</p>
-          </div>
+      <main className="flex min-h-[100dvh] w-full flex-col items-center bg-surface p-6 sm:p-8 lg:min-h-screen lg:w-1/2">
+        <div className="flex w-full flex-1 flex-col items-center justify-center">
+          <div className="auth-form w-full max-w-md space-y-10">
+            <div className="text-center lg:text-left">
+              <h3 className="mb-2 font-headline text-3xl font-bold text-on-surface">Iniciar sesión</h3>
+              <p className="font-medium text-on-surface-variant">Ingresa tu cédula o correo y contraseña para acceder.</p>
+            </div>
 
-          <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+            <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)} noValidate>
             <div className="space-y-2">
               <label
                 className="ml-1 font-headline text-xs font-bold uppercase tracking-widest text-on-surface-variant"
@@ -239,8 +240,9 @@ const LoginPage = (): JSX.Element => {
             </p>
           </div>
         </div>
+        </div>
 
-        <footer className="mt-auto flex w-full max-w-md flex-col items-center gap-4 pt-12 pb-6 lg:pb-8">
+        <footer className="flex w-full max-w-md shrink-0 flex-col items-center gap-4 pt-8 pb-6 lg:pb-8">
           <div className="flex flex-wrap items-center justify-center gap-6">
             <span className="font-label text-xs font-medium text-outline">Términos</span>
             <span className="font-label text-xs font-medium text-outline">Privacidad</span>

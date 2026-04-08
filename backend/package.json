@@ -18,7 +18,8 @@
     "lint": "npx tsc --noEmit",
     "audit:high": "npm audit --audit-level=high",
     "audit:critical": "npm audit --audit-level=critical",
-    "test:security": "node --import tsx --test src/tests/security/token-hash.test.ts"
+    "test:security": "node --import tsx --test src/tests/security/token-hash.test.ts",
+    "platform-test": "npx tsx scripts/platform-load-test.ts"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"
