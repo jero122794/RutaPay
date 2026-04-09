@@ -1,4 +1,3 @@
-#!/usr/bin/env npx tsx
 /**
  * Platform load / integration dataset for RutaPay.
  *

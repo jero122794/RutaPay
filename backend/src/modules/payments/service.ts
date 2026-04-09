@@ -3,7 +3,6 @@ import type { Prisma } from "@prisma/client";
 import { assertLoanAccessForActor } from "../../shared/loan-ownership.js";
 import {
   computeLatePenaltyWithCatchUpGraceCOP,
-  computeLatePenaltyCOP,
   interestSharePerInstallmentCOP
 } from "../../shared/late-penalty.js";
 import { sanitizePlainText } from "../../shared/sanitize.js";
@@ -150,7 +149,7 @@ export const createPayment = async (
         }),
         tx.loan.findUnique({
           where: { id: input.loanId },
-          select: { totalInterest: true, installmentCount: true }
+          select: { totalInterest: true, installmentCount: true, frequency: true }
         })
       ]);
 
@@ -201,7 +200,8 @@ export const createPayment = async (
           schedule.dueDate,
           paymentNow,
           interestShareCOP,
-          nextDueDate
+          nextDueDate,
+          loanForPenalty.frequency
         );
         const totalDueNumber = targetAmountNumber + latePenalty;
         const outstanding = totalDueNumber - currentPaidAmountNumber;
@@ -383,7 +383,7 @@ export const reversePayment = async (
 
     const loanForPenalty = await tx.loan.findUnique({
       where: { id: payment.loanId },
-      select: { totalInterest: true, installmentCount: true }
+      select: { totalInterest: true, installmentCount: true, frequency: true }
     });
     if (!loanForPenalty) {
       throw new Error("Loan not found.");
@@ -404,7 +404,8 @@ export const reversePayment = async (
       schedule.dueDate,
       payment.createdAt,
       interestShareCOP,
-      nextSchedule?.dueDate ?? null
+      nextSchedule?.dueDate ?? null,
+      loanForPenalty.frequency
     );
 
     const currentPaid = Math.round(decimalToNumber(schedule.paidAmount));

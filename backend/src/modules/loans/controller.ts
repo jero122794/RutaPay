@@ -15,7 +15,9 @@ import * as loanService from "./service.js";
 export const listLoansController = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
   const actor = ensureActor(request);
   const pagination = parseOptionalPaginationQuery(request.query);
-  const body = await loanService.listLoans(actor.id, actor.roles, actor.businessId, pagination);
+  const qRaw = (request.query as Record<string, unknown> | undefined)?.q;
+  const q = typeof qRaw === "string" ? qRaw.trim() : "";
+  const body = await loanService.listLoans(actor.id, actor.roles, actor.businessId, pagination, q);
   reply.send(body);
 };
 

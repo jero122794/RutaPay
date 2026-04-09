@@ -107,7 +107,8 @@ export const listClients = async (
   actorId: string,
   actorRoles: string[],
   actorBusinessId: string | null,
-  pagination: PaginationQuery | null
+  pagination: PaginationQuery | null,
+  q: string
 ): Promise<{ data: ClientView[]; total: number; page: number; limit: number }> => {
   const isSuper = actorRoles.includes("SUPER_ADMIN");
   const isAdmin = actorRoles.includes("ADMIN") && !isSuper;
@@ -124,15 +125,46 @@ export const listClients = async (
           }
         };
 
-  const routeClients = await prisma.routeClient.findMany({
-    where: routeFilter,
-    include: {
-      route: true
-    },
-    orderBy: {
-      route: { createdAt: "desc" }
-    }
-  });
+  const term = q.trim();
+  const clientIdFilter =
+    term.length >= 1
+      ? {
+          clientId: {
+            in: (
+              await prisma.user.findMany({
+                where: {
+                  OR: [
+                    { name: { contains: term, mode: "insensitive" } },
+                    { documentId: { contains: term, mode: "insensitive" } },
+                    { email: { contains: term, mode: "insensitive" } }
+                  ]
+                },
+                select: { id: true },
+                take: 200
+              })
+            ).map((u) => u.id)
+          }
+        }
+      : {};
+
+  const where = { AND: [routeFilter, clientIdFilter] };
+  const total = await prisma.routeClient.count({ where });
+
+  const orderBy = { route: { createdAt: "desc" as const } };
+
+  const routeClients = pagination
+    ? await prisma.routeClient.findMany({
+        where,
+        include: { route: true },
+        orderBy,
+        skip: Math.max(0, (pagination.page - 1) * pagination.limit),
+        take: pagination.limit
+      })
+    : await prisma.routeClient.findMany({
+        where,
+        include: { route: true },
+        orderBy
+      });
 
   const clientIds = routeClients.map((item) => item.clientId);
   const managerIds = Array.from(new Set(routeClients.map((item) => item.route.managerId)));
@@ -187,12 +219,10 @@ export const listClients = async (
     });
   }
 
-  const total = result.length;
   if (!pagination) {
     return { data: result, total, page: 1, limit: total };
   }
-  const { data, page } = slicePage(result, pagination.page, pagination.limit);
-  return { data, total, page, limit: pagination.limit };
+  return { data: result, total, page: pagination.page, limit: pagination.limit };
 };
 
 export const createClient = async (

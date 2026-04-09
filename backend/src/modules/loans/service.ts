@@ -3,7 +3,6 @@ import type { LoanStatus, Prisma } from "@prisma/client";
 import { calculateLoan } from "../../shared/loan-calculator.js";
 import {
   computeLatePenaltyWithCatchUpGraceCOP,
-  computeLatePenaltyCOP,
   interestSharePerInstallmentCOP
 } from "../../shared/late-penalty.js";
 import { assertLoanAccessForActor, loanRowWithoutRoute } from "../../shared/loan-ownership.js";
@@ -21,6 +20,7 @@ interface LoanView {
   id: string;
   routeId: string;
   clientId: string;
+  clientName: string;
   managerId: string;
   principal: number;
   interestRate: number;
@@ -56,6 +56,7 @@ const mapLoan = (loan: {
   id: string;
   routeId: string;
   clientId: string;
+  client: { name: string } | null;
   managerId: string;
   principal: Prisma.Decimal;
   interestRate: Prisma.Decimal;
@@ -74,6 +75,7 @@ const mapLoan = (loan: {
   id: loan.id,
   routeId: loan.routeId,
   clientId: loan.clientId,
+  clientName: loan.client?.name ?? "-",
   managerId: loan.managerId,
   principal: decimalToNumber(loan.principal),
   interestRate: decimalToNumber(loan.interestRate),
@@ -101,7 +103,8 @@ export const listLoans = async (
   actorId: string,
   actorRoles: string[],
   actorBusinessId: string | null,
-  pagination: PaginationQuery | null
+  pagination: PaginationQuery | null,
+  q: string
 ): Promise<{ data: LoanView[]; total: number; page: number; limit: number }> => {
   const isSuper = actorRoles.includes("SUPER_ADMIN");
   const isAdmin = actorRoles.includes("ADMIN") && !isSuper;
@@ -118,11 +121,30 @@ export const listLoans = async (
     where = { clientId: actorId };
   }
 
+  const term = q.trim();
+  if (term.length >= 1) {
+    where = {
+      AND: [
+        where,
+        {
+          OR: [
+            { id: { contains: term, mode: "insensitive" } },
+            { clientId: { contains: term, mode: "insensitive" } },
+            { client: { name: { contains: term, mode: "insensitive" } } },
+            { client: { documentId: { contains: term, mode: "insensitive" } } },
+            { client: { email: { contains: term, mode: "insensitive" } } }
+          ]
+        }
+      ]
+    };
+  }
+
   const total = await prisma.loan.count({ where });
 
   if (!pagination) {
     const loans = await prisma.loan.findMany({
       where,
+      include: { client: { select: { name: true } } },
       orderBy: { createdAt: "desc" }
     });
     return { data: loans.map(mapLoan), total, page: 1, limit: total };
@@ -131,6 +153,7 @@ export const listLoans = async (
   const { skip, take, page } = prismaPaginationBounds(total, pagination.page, pagination.limit);
   const loans = await prisma.loan.findMany({
     where,
+    include: { client: { select: { name: true } } },
     orderBy: { createdAt: "desc" },
     skip,
     take
@@ -232,7 +255,14 @@ export const createLoan = async (
     return loan;
   });
 
-  return mapLoan(createdLoan);
+  const loanWithClient = await prisma.loan.findUnique({
+    where: { id: createdLoan.id },
+    include: { client: { select: { name: true } } }
+  });
+  if (!loanWithClient) {
+    throw new Error("Loan not found after creation.");
+  }
+  return mapLoan(loanWithClient);
 };
 
 export const getLoanById = async (
@@ -242,7 +272,9 @@ export const getLoanById = async (
   actorBusinessId: string | null
 ): Promise<LoanView> => {
   const loan = await assertLoanAccessForActor(id, actorId, actorRoles, actorBusinessId);
-  return mapLoan(loanRowWithoutRoute(loan));
+  const row = loanRowWithoutRoute(loan);
+  const client = await prisma.user.findUnique({ where: { id: row.clientId }, select: { name: true } });
+  return mapLoan({ ...row, client });
 };
 
 export const updateLoanStatus = async (
@@ -262,7 +294,8 @@ export const updateLoanStatus = async (
     where: { id },
     data: { status: input.status }
   });
-  return mapLoan(updated);
+  const client = await prisma.user.findUnique({ where: { id: updated.clientId }, select: { name: true } });
+  return mapLoan({ ...updated, client });
 };
 
 export const deleteLoan = async (
@@ -372,7 +405,8 @@ export const updateLoanTerms = async (
     return next;
   });
 
-  return mapLoan(updated);
+  const client = await prisma.user.findUnique({ where: { id: updated.clientId }, select: { name: true } });
+  return mapLoan({ ...updated, client });
 };
 
 export const getLoanSchedule = async (
@@ -390,7 +424,7 @@ export const getLoanSchedule = async (
     }),
     prisma.loan.findUnique({
       where: { id: loanId },
-      select: { totalInterest: true, installmentCount: true }
+      select: { totalInterest: true, installmentCount: true, frequency: true }
     })
   ]);
 
@@ -407,13 +441,19 @@ export const getLoanSchedule = async (
   return schedule.map((item, idx) => {
     const amount = decimalToNumber(item.amount);
     const paidAmount = decimalToNumber(item.paidAmount);
-    // Mora is calculated dynamically from due date (Bogotá calendar days).
+    // Mora is calculated dynamically (MONTHLY: per Bogotá month after due; others: day tiers).
     // It is applied in payments; exposing it here keeps UI totals aligned.
     const nextDueDate = schedule[idx + 1]?.dueDate ?? null;
     const latePenalty =
       item.status === "PAID"
         ? 0
-        : computeLatePenaltyWithCatchUpGraceCOP(item.dueDate, now, interestShareCOP, nextDueDate);
+        : computeLatePenaltyWithCatchUpGraceCOP(
+            item.dueDate,
+            now,
+            interestShareCOP,
+            nextDueDate,
+            loan.frequency
+          );
     const totalDue = amount + latePenalty;
     const pendingAmount = Math.max(totalDue - paidAmount, 0);
 

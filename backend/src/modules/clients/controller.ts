@@ -8,7 +8,9 @@ import * as clientService from "./service.js";
 export const listClientsController = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
   const actor = ensureActor(request);
   const pagination = parseOptionalPaginationQuery(request.query);
-  const body = await clientService.listClients(actor.id, actor.roles, actor.businessId, pagination);
+  const qRaw = (request.query as Record<string, unknown> | undefined)?.q;
+  const q = typeof qRaw === "string" ? qRaw.trim() : "";
+  const body = await clientService.listClients(actor.id, actor.roles, actor.businessId, pagination, q);
   reply.send(body);
 };
 

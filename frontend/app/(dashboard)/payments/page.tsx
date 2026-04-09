@@ -16,6 +16,7 @@ import api from "../../../lib/api";
 import { formatCOP } from "../../../lib/formatters";
 import { formatBogotaDateFromString } from "../../../lib/bogota";
 import { useMutation } from "@tanstack/react-query";
+import { useDebouncedValue } from "../../../lib/useDebouncedValue";
 
 interface ListResponse<T> {
   data: T[];
@@ -28,12 +29,8 @@ interface LoanItem {
   id: string;
   status: "ACTIVE" | "COMPLETED" | "DEFAULTED" | "RESTRUCTURED";
   clientId: string;
+  clientName: string;
   totalAmount: number;
-}
-
-interface ClientItem {
-  id: string;
-  name: string;
 }
 
 interface ScheduleItem {
@@ -76,13 +73,6 @@ interface PaymentListResponse {
   limit: number;
 }
 
-interface LoanSearchOption {
-  loanId: string;
-  sequence: number;
-  clientName: string;
-  label: string;
-}
-
 const getErrorMessage = (error: unknown): string => {
   if (axios.isAxiosError(error)) {
     const message = (error.response?.data as { message?: string } | undefined)?.message;
@@ -120,35 +110,22 @@ const PaymentsPage = (): JSX.Element => {
     hasRole("ROUTE_MANAGER") || hasRole("ADMIN") || hasRole("SUPER_ADMIN");
   const isClientView = hasRole("CLIENT") && !canRegister;
 
-  const clientsQuery = useQuery({
-    queryKey: ["clients-for-payments-dropdown"],
-    queryFn: async (): Promise<ListResponse<ClientItem>> => {
-      const response = await api.get<ListResponse<ClientItem>>("/clients");
-      return response.data;
-    },
-    enabled: hasAuthHydrated && Boolean(user) && canRegister
-  });
-
-  const clientNameById = useMemo<Record<string, string>>(() => {
-    const map: Record<string, string> = {};
-    const items = clientsQuery.data?.data ?? [];
-    items.forEach((c) => {
-      map[c.id] = c.name;
-    });
-    return map;
-  }, [clientsQuery.data]);
-
-  const loansQuery = useQuery({
-    queryKey: ["payments-loans"],
-    queryFn: async (): Promise<ListResponse<LoanItem>> => {
-      const response = await api.get<ListResponse<LoanItem>>("/loans");
-      return response.data;
-    },
-    enabled: hasAuthHydrated && Boolean(user)
-  });
-
   const [selectedLoanId, setSelectedLoanId] = useState<string>("");
   const [loanSearchTerm, setLoanSearchTerm] = useState<string>("");
+  const [isLoanSuggestOpen, setIsLoanSuggestOpen] = useState(false);
+  const debouncedTerm = useDebouncedValue(loanSearchTerm, 250).trim();
+  const effectiveTerm = debouncedTerm;
+
+  const loansQuery = useQuery({
+    queryKey: ["payments-loans-search", effectiveTerm],
+    queryFn: async (): Promise<ListResponse<LoanItem>> => {
+      const response = await api.get<ListResponse<LoanItem>>("/loans", {
+        params: { page: 1, limit: 20, q: effectiveTerm }
+      });
+      return response.data;
+    },
+    enabled: hasAuthHydrated && Boolean(user) && canRegister && effectiveTerm.length >= 1
+  });
 
   const availableLoansForPayment = useMemo(() => {
     const loans = loansQuery.data?.data ?? [];
@@ -160,43 +137,6 @@ const PaymentsPage = (): JSX.Element => {
     if (selectedLoanId && selectedIsAvailable) return selectedLoanId;
     return availableLoansForPayment[0]?.id ?? "";
   }, [availableLoansForPayment, selectedLoanId]);
-
-  const loanSearchOptions = useMemo<LoanSearchOption[]>(() => {
-    return availableLoansForPayment.map((loan, index) => {
-      const sequence = index + 1;
-      const clientName = clientNameById[loan.clientId] ?? "Cliente";
-      return {
-        loanId: loan.id,
-        sequence,
-        clientName,
-        label: `${sequence} • ${clientName}`
-      };
-    });
-  }, [availableLoansForPayment, clientNameById]);
-
-  const selectedLoanOption = useMemo(() => {
-    return loanSearchOptions.find((opt) => opt.loanId === effectiveLoanId) ?? null;
-  }, [loanSearchOptions, effectiveLoanId]);
-
-  useEffect(() => {
-    if (selectedLoanOption) {
-      setLoanSearchTerm(selectedLoanOption.label);
-    } else if (loanSearchOptions.length === 0) {
-      setLoanSearchTerm("");
-    }
-  }, [selectedLoanOption, loanSearchOptions.length]);
-
-  const filteredLoanOptions = useMemo(() => {
-    const term = loanSearchTerm.trim().toLowerCase();
-    if (!term) return loanSearchOptions;
-    return loanSearchOptions.filter((opt) => {
-      return (
-        opt.label.toLowerCase().includes(term) ||
-        String(opt.sequence).includes(term) ||
-        opt.clientName.toLowerCase().includes(term)
-      );
-    });
-  }, [loanSearchTerm, loanSearchOptions]);
 
   const scheduleQuery = useQuery({
     queryKey: ["payment-schedule", effectiveLoanId],
@@ -249,6 +189,14 @@ const PaymentsPage = (): JSX.Element => {
     },
     enabled: hasAuthHydrated && Boolean(user) && isClientView && Boolean(effectiveLoanId)
   });
+
+  if (!hasAuthHydrated) {
+    return (
+      <section className="rounded-xl border border-outline-variant/10 bg-surface-container-low p-6">
+        <p className="text-sm text-on-surface-variant">Cargando…</p>
+      </section>
+    );
+  }
 
   useEffect(() => {
     const d = paymentsQuery.data;
@@ -358,10 +306,7 @@ const PaymentsPage = (): JSX.Element => {
     return availableLoansForPayment.find((l) => l.id === effectiveLoanId) ?? null;
   }, [availableLoansForPayment, effectiveLoanId]);
 
-  const selectedClientName = useMemo((): string => {
-    if (!selectedLoan) return "-";
-    return clientNameById[selectedLoan.clientId] ?? "Cliente";
-  }, [selectedLoan, clientNameById]);
+  const selectedClientName = selectedLoan?.clientName ?? (selectedLoan ? "Cliente" : "-");
 
   const scheduleStats = useMemo(() => {
     const items = scheduleQuery.data?.data ?? [];
@@ -520,26 +465,43 @@ const PaymentsPage = (): JSX.Element => {
                   <input
                     type="search"
                     className="w-full rounded-xl border-2 border-transparent bg-surface-container-lowest p-4 text-on-surface outline-none placeholder:text-outline focus:border-primary/40"
-                    placeholder="Buscar por secuencial o nombre del cliente"
+                    placeholder="Escribe el nombre o documento del cliente"
                     value={loanSearchTerm}
-                    onChange={(e) => setLoanSearchTerm(e.target.value)}
+                    onChange={(e) => {
+                      setLoanSearchTerm(e.target.value);
+                      setIsLoanSuggestOpen(true);
+                    }}
+                    onFocus={() => setIsLoanSuggestOpen(true)}
+                    onBlur={() => setIsLoanSuggestOpen(false)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        setIsLoanSuggestOpen(false);
+                      }
+                    }}
                   />
-                  {availableLoansForPayment.length > 0 ? (
-                    <div className="max-h-56 overflow-y-auto rounded-xl border border-outline-variant/10 bg-surface-container-lowest">
-                      {filteredLoanOptions.length === 0 ? (
-                        <p className="px-4 py-3 text-sm text-on-surface-variant">Sin resultados para la búsqueda.</p>
+                  {isLoanSuggestOpen && effectiveTerm.length >= 1 ? (
+                    <div
+                      className="max-h-56 overflow-y-auto rounded-xl border border-outline-variant/10 bg-surface-container-lowest"
+                      onMouseDown={(e) => {
+                        // Prevent input blur so clicking an option works.
+                        e.preventDefault();
+                      }}
+                    >
+                      {loansQuery.isLoading ? (
+                        <p className="px-4 py-3 text-sm text-on-surface-variant">Buscando...</p>
+                      ) : availableLoansForPayment.length === 0 ? (
+                        <p className="px-4 py-3 text-sm text-on-surface-variant">Sin resultados.</p>
                       ) : (
-                        filteredLoanOptions.map((opt) => {
-                          const isActive = opt.loanId === effectiveLoanId;
-                          const loanTotal =
-                            availableLoansForPayment.find((loan) => loan.id === opt.loanId)?.totalAmount ?? 0;
+                        availableLoansForPayment.slice(0, 8).map((loan) => {
+                          const isActive = loan.id === effectiveLoanId;
                           return (
                             <button
-                              key={opt.loanId}
+                              key={loan.id}
                               type="button"
                               onClick={() => {
-                                setSelectedLoanId(opt.loanId);
-                                setLoanSearchTerm(opt.label);
+                                setSelectedLoanId(loan.id);
+                                setLoanSearchTerm(loan.clientName);
+                                setIsLoanSuggestOpen(false);
                               }}
                               className={[
                                 "flex w-full items-center justify-between border-b border-outline-variant/10 px-4 py-3 text-left text-sm last:border-b-0",
@@ -548,16 +510,13 @@ const PaymentsPage = (): JSX.Element => {
                                   : "text-on-surface hover:bg-surface-container-highest/40"
                               ].join(" ")}
                             >
-                              <span className="font-semibold">{opt.label}</span>
-                              <span className="text-xs text-on-surface-variant">{formatCOP(loanTotal)}</span>
+                              <span className="font-semibold">{loan.clientName}</span>
+                              <span className="text-xs text-on-surface-variant">{formatCOP(loan.totalAmount)}</span>
                             </button>
                           );
                         })
                       )}
                     </div>
-                  ) : null}
-                  {selectedLoanOption ? (
-                    <p className="text-xs text-on-surface-variant">Seleccionado: {selectedLoanOption.label}</p>
                   ) : null}
                 </div>
 

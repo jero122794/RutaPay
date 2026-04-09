@@ -10,6 +10,7 @@ import { useForm } from "react-hook-form";
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import api from "../../../../lib/api";
+import { useDebouncedValue } from "../../../../lib/useDebouncedValue";
 import { getEffectiveRoles, pickPrimaryRole } from "../../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../../store/authStore";
 import { calculateLoan, type LoanFrequency, type LoanInput } from "../../../../lib/loan-calculator";
@@ -76,24 +77,27 @@ const LoansNewPageInner = (): JSX.Element => {
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
 
   const canCreate = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
+  const [clientSearchTerm, setClientSearchTerm] = useState<string>("");
+  const [isClientSuggestOpen, setIsClientSuggestOpen] = useState(false);
+  const debouncedInput = useDebouncedValue(clientSearchTerm, 250);
+  const effectiveTerm = debouncedInput.trim();
+
   const clientsQuery = useQuery({
-    queryKey: ["clients-for-loans-create"],
+    queryKey: ["clients-for-loans-create-search", effectiveTerm],
     queryFn: async (): Promise<ListResponse<ClientItem>> => {
-      const response = await api.get<ListResponse<ClientItem>>("/clients");
+      const response = await api.get<ListResponse<ClientItem>>("/clients", {
+        params: { page: 1, limit: 10, q: effectiveTerm }
+      });
       return response.data;
     },
-    enabled: hasAuthHydrated && Boolean(user) && canCreate
+    enabled: hasAuthHydrated && Boolean(user) && canCreate && effectiveTerm.length >= 1
   });
 
-  const clients = useMemo<ClientItem[]>(() => {
-    return clientsQuery.data?.data ?? [];
-  }, [clientsQuery.data]);
+  const clients = useMemo<ClientItem[]>(() => clientsQuery.data?.data ?? [], [clientsQuery.data]);
 
   const clientIdFromUrl = searchParams.get("clientId");
 
   const inferredStartDate = getBogotaYMD();
-
-  const [clientSearchTerm, setClientSearchTerm] = useState<string>("");
 
   const form = useForm<CreateLoanFormData>({
     resolver: zodResolver(createLoanFormSchema),
@@ -110,24 +114,15 @@ const LoansNewPageInner = (): JSX.Element => {
   });
 
   useEffect(() => {
-    if (!clientIdFromUrl || clients.length === 0) {
-      return;
-    }
-    const exists = clients.some((row) => row.id === clientIdFromUrl);
-    if (exists) {
-      form.setValue("clientId", clientIdFromUrl, { shouldValidate: true });
-    }
+    if (!clientIdFromUrl) return;
+    form.setValue("clientId", clientIdFromUrl, { shouldValidate: true });
   }, [clientIdFromUrl, clients, form]);
 
   useEffect(() => {
-    if (!clientIdFromUrl || clients.length === 0) {
-      return;
-    }
-    const selected = clients.find((row) => row.id === clientIdFromUrl);
-    if (selected) {
-      setClientSearchTerm(selected.name);
-    }
-  }, [clientIdFromUrl, clients]);
+    // Do not auto-load full client lists for large DBs.
+    // If a clientId is provided via URL, user can keep it, or search to replace.
+    return;
+  }, []);
 
   const startDateISO = form.watch("startDate");
   const principal = form.watch("principal");
@@ -156,14 +151,6 @@ const LoansNewPageInner = (): JSX.Element => {
     if (!clientId) return null;
     return clientSearchOptions.find((opt) => opt.clientId === clientId) ?? null;
   }, [clientId, clientSearchOptions]);
-
-  useEffect(() => {
-    if (selectedClientOption) {
-      setClientSearchTerm(selectedClientOption.clientName);
-    } else if (clientSearchOptions.length === 0) {
-      setClientSearchTerm("");
-    }
-  }, [selectedClientOption, clientSearchOptions.length]);
 
   const filteredClientOptions = useMemo(() => {
     const term = clientSearchTerm.trim().toLowerCase();
@@ -217,9 +204,12 @@ const LoansNewPageInner = (): JSX.Element => {
     if (!canCreate) {
       return;
     }
-    const selected = clients.find((c) => c.id === values.clientId);
-    if (!selected) {
-      form.setError("clientId", { type: "manual", message: "Cliente inválido." });
+    const selected = selectedClient;
+    if (!selected || selected.id !== values.clientId) {
+      form.setError("clientId", {
+        type: "manual",
+        message: "Selecciona un cliente desde la búsqueda para obtener su ruta."
+      });
       return;
     }
 
@@ -243,6 +233,14 @@ const LoansNewPageInner = (): JSX.Element => {
       form.setError("clientId", { type: "manual", message });
     }
   };
+
+  if (!hasAuthHydrated) {
+    return (
+      <section className="rounded-xl border border-outline-variant/10 bg-surface-container-low p-6">
+        <p className="text-sm text-on-surface-variant">Cargando…</p>
+      </section>
+    );
+  }
 
   if (!canCreate) {
     return (
@@ -294,16 +292,34 @@ const LoansNewPageInner = (): JSX.Element => {
                     className="w-full rounded-xl border-2 border-transparent bg-surface-container-lowest p-4 text-on-surface outline-none placeholder:text-outline focus:border-primary/40"
                     placeholder="Buscar por nombre o documento"
                     value={clientSearchTerm}
-                    onChange={(e) => setClientSearchTerm(e.target.value)}
+                    onChange={(e) => {
+                      setClientSearchTerm(e.target.value);
+                      setIsClientSuggestOpen(true);
+                    }}
                     autoComplete="off"
+                    onFocus={() => setIsClientSuggestOpen(true)}
+                    onBlur={() => setIsClientSuggestOpen(false)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        setIsClientSuggestOpen(false);
+                      }
+                    }}
                   />
 
-                  {clients.length > 0 ? (
-                    <div className="max-h-56 overflow-y-auto rounded-xl border border-outline-variant/10 bg-surface-container-lowest">
-                      {filteredClientOptions.length === 0 ? (
-                        <p className="px-4 py-3 text-sm text-on-surface-variant">Sin resultados para la búsqueda.</p>
+                  {isClientSuggestOpen && effectiveTerm.length >= 1 ? (
+                    <div
+                      className="max-h-56 overflow-y-auto rounded-xl border border-outline-variant/10 bg-surface-container-lowest"
+                      onMouseDown={(e) => {
+                        // Prevent input blur so clicking an option works.
+                        e.preventDefault();
+                      }}
+                    >
+                      {clientsQuery.isLoading ? (
+                        <p className="px-4 py-3 text-sm text-on-surface-variant">Buscando...</p>
+                      ) : clients.length === 0 ? (
+                        <p className="px-4 py-3 text-sm text-on-surface-variant">Sin resultados.</p>
                       ) : (
-                        filteredClientOptions.map((opt) => {
+                        filteredClientOptions.slice(0, 8).map((opt) => {
                           const isActive = opt.clientId === clientId;
                           return (
                             <button
@@ -312,6 +328,7 @@ const LoansNewPageInner = (): JSX.Element => {
                               onClick={() => {
                                 form.setValue("clientId", opt.clientId, { shouldValidate: true });
                                 setClientSearchTerm(opt.clientName);
+                                setIsClientSuggestOpen(false);
                               }}
                               className={[
                                 "flex w-full items-center justify-between border-b border-outline-variant/10 px-4 py-3 text-left text-sm last:border-b-0",
@@ -321,7 +338,7 @@ const LoansNewPageInner = (): JSX.Element => {
                               ].join(" ")}
                             >
                               <span className="font-semibold">{opt.clientName}</span>
-                              <span className="text-xs text-on-surface-variant">{opt.clientId}</span>
+                              <span className="text-xs text-on-surface-variant">{opt.clientId.slice(0, 8)}</span>
                             </button>
                           );
                         })
@@ -333,11 +350,8 @@ const LoansNewPageInner = (): JSX.Element => {
                     <p className="text-xs text-on-surface-variant">Seleccionado: {selectedClientOption.label}</p>
                   ) : null}
 
-                  {!clientsQuery.isLoading && !clientsQuery.isError && clients.length === 0 ? (
-                    <p className="mt-1 text-xs text-warning">
-                      No hay clientes en tu ruta. Deben estar vinculados a la ruta (módulo Clientes o registro con{" "}
-                      <code className="text-on-surface-variant">?routeId=</code>).
-                    </p>
+                  {effectiveTerm.length >= 1 && !clientsQuery.isLoading && !clientsQuery.isError && clients.length === 0 ? (
+                    <p className="mt-1 text-xs text-warning">No hay resultados para esa búsqueda.</p>
                   ) : null}
                   <p className="mt-1 text-xs text-error">{form.formState.errors.clientId?.message}</p>
                 </div>
