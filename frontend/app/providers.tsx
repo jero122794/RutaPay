@@ -4,6 +4,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useAuthStore } from "../store/authStore";
+import AppLoader from "../components/ui/AppLoader";
 
 interface ProvidersProps {
   children: React.ReactNode;
@@ -28,6 +29,9 @@ const Providers = ({ children }: ProvidersProps): JSX.Element => {
       })
   );
 
+  const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
+  const [loaderVisible, setLoaderVisible] = useState(true);
+
   useEffect(() => {
     void (async (): Promise<void> => {
       await Promise.resolve(useAuthStore.persist.rehydrate());
@@ -35,9 +39,19 @@ const Providers = ({ children }: ProvidersProps): JSX.Element => {
     })();
   }, []);
 
+  // Keep loader visible until hydration is done, then fade out
+  useEffect(() => {
+    if (hasAuthHydrated) {
+      // Small extra delay so the fade-out is visible
+      const t = setTimeout(() => setLoaderVisible(false), 500);
+      return () => clearTimeout(t);
+    }
+  }, [hasAuthHydrated]);
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthHydrationBridge />
+      <AppLoader visible={loaderVisible} />
       {children}
     </QueryClientProvider>
   );

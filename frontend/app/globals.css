@@ -255,3 +255,82 @@ button {
     box-shadow: 0 0 0 1000px #03050a inset;
   }
 }
+
+/* ============================================================
+   APP LOADER — full-screen splash while auth hydrates
+   ============================================================ */
+.app-loader-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  background: #05080f;
+  transition: opacity 0.5s ease;
+}
+
+.app-loader-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 18px rgba(105, 246, 184, 0.3));
+}
+
+/* Spinner — conic-gradient blur ring (mint primary) */
+.app-loader-spinner-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-loader-spinner {
+  height: 80px;
+  aspect-ratio: 1;
+  padding: 10px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  position: relative;
+  mask: conic-gradient(#000 0 0) content-box exclude, conic-gradient(#000 0 0);
+  filter: blur(10px);
+}
+
+.app-loader-spinner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: conic-gradient(#0000 35%, #69f6b8, #0000 65%);
+  animation: ruutSpin 1.5s linear infinite;
+  border-radius: 50%;
+}
+
+@keyframes ruutSpin {
+  to {
+    rotate: 1turn;
+  }
+}
+
+/* Message below spinner */
+.app-loader-message {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: rgba(156, 163, 175, 0.85);
+  letter-spacing: 0.01em;
+  transition: opacity 0.3s ease;
+  text-align: center;
+  min-height: 20px;
+}
+
+/* Subtle brand label at the bottom */
+.app-loader-brand {
+  position: absolute;
+  bottom: 32px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(105, 246, 184, 0.25);
+}
