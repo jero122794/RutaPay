@@ -71,22 +71,17 @@ export const countMonthlyMoraPeriodsBogota = (dueDateUtc: Date, paymentDateUtc: 
 /**
  * Extra mora (COP) when paying after the due date (Bogotá calendar).
  *
- * MONTHLY: mora = (interest share per installment) × (full monthly periods late).
- * Each period matches one contractual "month" of interest at creation time.
- *
- * Other frequencies: legacy tiers by calendar days late (3 / 15 day thresholds).
+ * All frequencies use the same day-based tiers:
+ *   0–3 days late  → no mora (grace period)
+ *   4–15 days late → 50% of the installment's interest share
+ *   >15 days late  → 100% of the installment's interest share
  */
 export const computeLatePenaltyCOP = (
   dueDateUtc: Date,
   paymentDateUtc: Date,
   interestInstallmentShareCOP: number,
-  frequency: LoanFrequencyForMora
+  _frequency: LoanFrequencyForMora
 ): number => {
-  if (frequency === "MONTHLY") {
-    const periods = countMonthlyMoraPeriodsBogota(dueDateUtc, paymentDateUtc);
-    return Math.round(interestInstallmentShareCOP * periods);
-  }
-
   const daysLate = bogotaCalendarDaysBetween(dueDateUtc, paymentDateUtc);
   if (daysLate <= 3) {
     return 0;
