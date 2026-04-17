@@ -449,6 +449,69 @@ export const reconcileBusinessScope = async (businessId: string): Promise<Reconc
   };
 };
 
+/**
+ * Hard-delete a business and all data it owns (routes, loans, payments, schedules, etc.).
+ * Blocked if any loan belonging to the business has status ACTIVE.
+ */
+export const deleteBusiness = async (id: string): Promise<void> => {
+  const business = await prisma.business.findUnique({ where: { id } });
+  if (!business) {
+    throw notFound("El negocio no existe.");
+  }
+
+  // Block deletion when there are active loans to protect financial integrity.
+  const activeLoans = await prisma.loan.count({
+    where: {
+      route: { businessId: id },
+      status: "ACTIVE"
+    }
+  });
+
+  if (activeLoans > 0) {
+    throw badRequest(
+      `No se puede eliminar el negocio porque tiene ${activeLoans} préstamo(s) activo(s). Ciérralos o márcalos como completados antes de continuar.`
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const routes = await tx.route.findMany({
+      where: { businessId: id },
+      select: { id: true }
+    });
+    const routeIds = routes.map((r) => r.id);
+
+    const loans = await tx.loan.findMany({
+      where: { routeId: { in: routeIds } },
+      select: { id: true }
+    });
+    const loanIds = loans.map((l) => l.id);
+
+    // Delete leaf rows first to respect FK constraints.
+    if (loanIds.length > 0) {
+      await tx.payment.deleteMany({ where: { loanId: { in: loanIds } } });
+      await tx.paymentSchedule.deleteMany({ where: { loanId: { in: loanIds } } });
+      await tx.loan.deleteMany({ where: { id: { in: loanIds } } });
+    }
+
+    if (routeIds.length > 0) {
+      await tx.routeClient.deleteMany({ where: { routeId: { in: routeIds } } });
+      await tx.managerBalanceLog.deleteMany({ where: { routeId: { in: routeIds } } });
+      await tx.liquidationReview.deleteMany({
+        where: { manager: { managedRoute: { some: { id: { in: routeIds } } } } }
+      });
+      await tx.route.deleteMany({ where: { id: { in: routeIds } } });
+    }
+
+    // Detach all users from the business (do not delete user accounts).
+    await tx.user.updateMany({
+      where: { businessId: id },
+      data: { businessId: null }
+    });
+
+    await tx.business.delete({ where: { id } });
+  });
+};
+
 export const removeBusinessMember = async (businessId: string, userId: string): Promise<void> => {
   const user = await prisma.user.findUnique({
     where: { id: userId },

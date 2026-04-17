@@ -7,6 +7,7 @@ import {
   assignBusinessMemberController,
   createBusinessController,
   createFirstBusinessAdminController,
+  deleteBusinessController,
   getBusinessByIdController,
   listAssignableUsersController,
   listBusinessesController,
@@ -41,6 +42,11 @@ export const businessesRouter = async (app: FastifyInstance): Promise<void> => {
     "/:id",
     { preHandler: [authGuard, roleGuard(["SUPER_ADMIN"]), moduleGuard("BUSINESSES")] },
     updateBusinessController
+  );
+  app.delete(
+    "/:id",
+    { preHandler: [authGuard, roleGuard(["SUPER_ADMIN"]), moduleGuard("BUSINESSES")] },
+    deleteBusinessController
   );
   app.post(
     "/:id/license",

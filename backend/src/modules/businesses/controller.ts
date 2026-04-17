@@ -163,6 +163,41 @@ export const removeBusinessMemberController = async (
   reply.send({ data: true, message: "Member removed from business." });
 };
 
+export const deleteBusinessController = async (
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> => {
+  const actor = request.authUser;
+  if (!actor) {
+    reply.code(401).send({ statusCode: 401, error: "Unauthorized", message: "Authentication required." });
+    return;
+  }
+
+  const { id } = businessIdParamsSchema.parse(request.params);
+
+  await writeAuditLog({
+    userId: actor.id,
+    action: "BUSINESS_DELETE_ATTEMPT",
+    resourceType: "business",
+    resourceId: id,
+    ip: clientIp(request),
+    userAgent: userAgentHeader(request)
+  });
+
+  await businessService.deleteBusiness(id);
+
+  await writeAuditLog({
+    userId: actor.id,
+    action: "BUSINESS_DELETED",
+    resourceType: "business",
+    resourceId: id,
+    ip: clientIp(request),
+    userAgent: userAgentHeader(request)
+  });
+
+  reply.send({ data: true, message: "Business deleted successfully." });
+};
+
 export const reconcileBusinessScopeController = async (
   request: FastifyRequest,
   reply: FastifyReply
