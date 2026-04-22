@@ -44,6 +44,11 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  images: {
+    // Security hardening: disable Next Image Optimization endpoint (reduces attack surface + disk cache growth risks).
+    unoptimized: true,
+    remotePatterns: []
+  },
   async headers() {
     return [
       {

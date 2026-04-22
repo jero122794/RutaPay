@@ -264,7 +264,7 @@ export const login = async (
 export const refresh = async (token: string): Promise<{ accessToken: string; refreshToken: string }> => {
   let payload: JwtPayload;
   try {
-    payload = jwt.verify(token, env.JWT_REFRESH_SECRET) as JwtPayload;
+    payload = jwt.verify(token, env.JWT_REFRESH_SECRET, { algorithms: ["HS256"] }) as JwtPayload;
   } catch {
     const err = new Error("Credenciales inválidas.") as FastifyError;
     err.statusCode = 401;
@@ -360,7 +360,7 @@ export const refresh = async (token: string): Promise<{ accessToken: string; ref
 export const logout = async (token: string): Promise<{ userId: string | null }> => {
   let userId: string | null = null;
   try {
-    const decoded = jwt.verify(token, env.JWT_REFRESH_SECRET) as JwtPayload;
+    const decoded = jwt.verify(token, env.JWT_REFRESH_SECRET, { algorithms: ["HS256"] }) as JwtPayload;
     userId = decoded.sub;
   } catch {
     // Invalid token; still attempt hash-based cleanup below.

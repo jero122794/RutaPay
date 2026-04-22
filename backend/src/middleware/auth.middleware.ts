@@ -19,7 +19,7 @@ export const authGuard = async (request: FastifyRequest, reply: FastifyReply): P
     }
 
     const token = authz.slice(7);
-    const decoded = jwt.verify(token, env.JWT_SECRET) as unknown;
+    const decoded = jwt.verify(token, env.JWT_SECRET, { algorithms: ["HS256"] }) as unknown;
     if (!decoded || typeof decoded !== "object") {
       throw new Error("Invalid token.");
     }
