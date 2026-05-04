@@ -6,6 +6,7 @@ import { verifyLoanOwnershipParam } from "../../middleware/ownership.middleware.
 import { roleGuard } from "../../middleware/role.middleware.js";
 import {
   calculateLoanController,
+  applyScheduleInterestController,
   createLoanController,
   deleteLoanController,
   getLoanByIdController,
@@ -92,6 +93,18 @@ export const loansRouter = async (app: FastifyInstance): Promise<void> => {
       ]
     },
     getLoanScheduleController
+  );
+  app.post(
+    "/:id/schedule/:scheduleId/apply-interest",
+    {
+      preHandler: [
+        authGuard,
+        roleGuard(["ADMIN", "SUPER_ADMIN", "ROUTE_MANAGER"]),
+        moduleGuard("LOANS"),
+        verifyLoanOwnershipParam("id")
+      ]
+    },
+    applyScheduleInterestController
   );
   app.post(
     "/calculate",

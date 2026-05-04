@@ -194,6 +194,7 @@ export const createPayment = async (
         // Money should be handled as integers. We round Decimal->number to avoid
         // tiny binary/representation differences during comparisons.
         const targetAmountNumber = Math.round(decimalToNumber(schedule.amount));
+        const interestAmountNumber = schedule.interestApplied ? Math.round(decimalToNumber(schedule.interestAmount)) : 0;
         const currentPaidAmountNumber = Math.round(decimalToNumber(schedule.paidAmount));
         const nextDueDate = schedules[i + 1]?.dueDate ?? null;
         const latePenalty = computeLatePenaltyWithCatchUpGraceCOP(
@@ -203,7 +204,7 @@ export const createPayment = async (
           nextDueDate,
           loanForPenalty.frequency
         );
-        const totalDueNumber = targetAmountNumber + latePenalty;
+        const totalDueNumber = targetAmountNumber + interestAmountNumber + latePenalty;
         const outstanding = totalDueNumber - currentPaidAmountNumber;
 
         if (outstanding <= 0) continue;
@@ -411,7 +412,8 @@ export const reversePayment = async (
     const currentPaid = Math.round(decimalToNumber(schedule.paidAmount));
     const paymentAmount = Math.round(decimalToNumber(payment.amount));
     const scheduleAmount = Math.round(decimalToNumber(schedule.amount));
-    const totalDueNumber = scheduleAmount + latePenaltyAtPayment;
+    const interestAmountAtPayment = schedule.interestApplied ? Math.round(decimalToNumber(schedule.interestAmount)) : 0;
+    const totalDueNumber = scheduleAmount + interestAmountAtPayment + latePenaltyAtPayment;
     const nextPaid = Math.max(0, currentPaid - paymentAmount);
     const nextStatus: "PENDING" | "PAID" | "OVERDUE" | "PARTIAL" =
       nextPaid <= 0 ? "PENDING" : nextPaid >= totalDueNumber ? "PAID" : "PARTIAL";

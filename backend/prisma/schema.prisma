@@ -156,6 +156,10 @@ model PaymentSchedule {
   installmentNumber  Int
   dueDate            DateTime
   amount             Decimal         @db.Decimal(12,2)
+  interestApplied    Boolean         @default(false)
+  interestAmount     Decimal         @default(0) @db.Decimal(12,2)
+  interestAppliedAt  DateTime?
+  interestAppliedById String?
   paidAmount         Decimal         @default(0) @db.Decimal(12,2)
   status             ScheduleStatus  @default(PENDING)
   paidAt             DateTime?

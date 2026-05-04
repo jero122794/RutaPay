@@ -7,6 +7,7 @@ import {
   calculateLoanSchema,
   createLoanSchema,
   loanIdParamsSchema,
+  loanScheduleInterestParamsSchema,
   updateLoanStatusSchema,
   updateLoanTermsSchema
 } from "./schema.js";
@@ -98,6 +99,37 @@ export const getLoanScheduleController = async (
   const schedule = await loanService.getLoanSchedule(id, actor.id, actor.roles, actor.businessId);
   reply.send({
     data: schedule
+  });
+};
+
+export const applyScheduleInterestController = async (
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> => {
+  const actor = ensureActor(request);
+  const { id, scheduleId } = loanScheduleInterestParamsSchema.parse(request.params);
+
+  const updated = await loanService.applyInterestToSchedule(
+    id,
+    scheduleId,
+    actor.id,
+    actor.roles,
+    actor.businessId
+  );
+
+  await writeAuditLog({
+    userId: actor.id,
+    action: "LOAN_SCHEDULE_INTEREST_APPLY",
+    resourceType: "payment_schedule",
+    resourceId: scheduleId,
+    newValue: { loanId: id, scheduleId, interestAmount: updated.interestAmount },
+    ip: clientIp(request),
+    userAgent: userAgentHeader(request)
+  });
+
+  reply.send({
+    data: updated,
+    message: "Interés aplicado a la cuota."
   });
 };
 

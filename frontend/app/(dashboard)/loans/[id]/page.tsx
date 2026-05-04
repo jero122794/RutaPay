@@ -66,9 +66,12 @@ interface PaymentsByLoanResponse {
 }
 
 interface ScheduleItem {
+  id: string;
   installmentNumber: number;
   dueDate: string;
   amount: number;
+  interestApplied: boolean;
+  interestAmount: number;
   latePenalty: number;
   totalDue: number;
   pendingAmount: number;
@@ -216,6 +219,7 @@ const LoanDetailPage = (): JSX.Element => {
 
   const canEditLoanTerms = role === "ADMIN" || role === "SUPER_ADMIN";
   const canRegisterPayment = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
+  const canApplyInstallmentInterest = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
   const canSeePaymentHistory = user?.modules?.includes("PAYMENTS") ?? false;
 
   const loanQuery = useQuery({
@@ -341,6 +345,20 @@ const LoanDetailPage = (): JSX.Element => {
     }
   });
 
+  const [interestModal, setInterestModal] = useState<{ scheduleId: string; installmentNumber: number; amount: number } | null>(
+    null
+  );
+
+  const applyInterestMutation = useMutation({
+    mutationFn: async (scheduleId: string): Promise<void> => {
+      await api.post(`/loans/${loanId}/schedule/${scheduleId}/apply-interest`);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["loan-schedule", loanId] });
+      setInterestModal(null);
+    }
+  });
+
   const deleteLoanMutation = useMutation({
     mutationFn: async (): Promise<void> => {
       await api.delete(`/loans/${loanId}`);
@@ -368,8 +386,8 @@ const LoanDetailPage = (): JSX.Element => {
     return `${base} hover:bg-tertiary/5`;
   };
 
-  const interestPortion = (item: ScheduleItem): number => {
-    return Math.max(0, item.totalDue - item.amount);
+  const extraPortion = (item: ScheduleItem): number => {
+    return Math.max(0, (item.interestApplied ? item.interestAmount : 0) + item.latePenalty);
   };
 
   return (
@@ -565,7 +583,7 @@ const LoanDetailPage = (): JSX.Element => {
                     </thead>
                     <tbody>
                       {pagedScheduleItems.map((item) => (
-                        <tr key={item.installmentNumber} className={scheduleRowClass(item)}>
+                        <tr key={item.id} className={scheduleRowClass(item)}>
                           <td data-label="Cuota" className="px-6 py-5 lg:px-8">
                             <span className="text-sm font-bold text-on-surface">#{String(item.installmentNumber).padStart(2, "0")}</span>
                           </td>
@@ -577,31 +595,49 @@ const LoanDetailPage = (): JSX.Element => {
                           </td>
                           <td data-label="Monto" className="px-4 py-5 text-sm font-bold text-on-surface">{formatCOP(item.amount)}</td>
                           <td data-label="Interés / extra" className="hidden px-4 py-5 text-sm text-on-surface-variant sm:table-cell">
-                            {interestPortion(item) > 0 ? formatCOP(interestPortion(item)) : "—"}
+                            {extraPortion(item) > 0 ? formatCOP(extraPortion(item)) : "—"}
                           </td>
                           <td data-label="Total cuota" className="px-4 py-5 text-sm font-bold text-on-surface">{formatCOP(item.totalDue)}</td>
                           <td data-label="Estado" className="px-4 py-5">
                             <ScheduleStatusCell item={item} />
                           </td>
                           <td data-no-label="true" data-align="end" className="px-6 py-5 text-right lg:px-8">
-                            {item.status === "OVERDUE" && canRegisterPayment ? (
-                              <Link
-                                href="/payments"
-                                className="rounded-lg bg-error px-3 py-1.5 text-[10px] font-extrabold text-white opacity-0 transition-opacity group-hover:opacity-100"
-                              >
-                                Cobrar
-                              </Link>
-                            ) : (
-                              <button
-                                type="button"
-                                className="rounded-full p-2 opacity-0 transition-opacity hover:bg-surface-container-highest group-hover:opacity-100"
-                                aria-label="Detalle cuota"
-                              >
-                                <span className="material-symbols-outlined text-on-surface-variant" aria-hidden>
-                                  visibility
-                                </span>
-                              </button>
-                            )}
+                            <div className="flex items-center justify-end gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                              {canApplyInstallmentInterest && !item.interestApplied && item.paidAmount === 0 && item.status !== "PAID" && item.status !== "PARTIAL" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setInterestModal({
+                                      scheduleId: item.id,
+                                      installmentNumber: item.installmentNumber,
+                                      amount: item.amount
+                                    });
+                                  }}
+                                  className="rounded-lg border border-outline-variant/30 bg-surface-container-high px-3 py-1.5 text-[10px] font-extrabold text-on-surface hover:bg-surface-container-highest"
+                                >
+                                  Aplicar interés
+                                </button>
+                              ) : null}
+
+                              {item.status === "OVERDUE" && canRegisterPayment ? (
+                                <Link
+                                  href="/payments"
+                                  className="rounded-lg bg-error px-3 py-1.5 text-[10px] font-extrabold text-white"
+                                >
+                                  Cobrar
+                                </Link>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="rounded-full p-2 hover:bg-surface-container-highest"
+                                  aria-label="Detalle cuota"
+                                >
+                                  <span className="material-symbols-outlined text-on-surface-variant" aria-hidden>
+                                    visibility
+                                  </span>
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -785,6 +821,42 @@ const LoanDetailPage = (): JSX.Element => {
             </Link>
           ) : null}
         </>
+      ) : null}
+
+      {interestModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-outline-variant/20 bg-surface-container-low p-6 shadow-2xl">
+            <h2 className="font-headline text-lg font-bold text-on-surface">Aplicar interés a la cuota</h2>
+            <p className="mt-2 text-sm text-on-surface-variant">
+              Vas a aplicar el interés correspondiente a la cuota{" "}
+              <span className="font-bold text-on-surface">#{String(interestModal.installmentNumber).padStart(2, "0")}</span>.
+              Esta acción no se puede revertir automáticamente.
+            </p>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setInterestModal(null)}
+                disabled={applyInterestMutation.isPending}
+                className="rounded-xl border border-outline-variant/30 bg-transparent px-4 py-2 text-sm font-semibold text-on-surface hover:bg-surface-container-high disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  await applyInterestMutation.mutateAsync(interestModal.scheduleId);
+                }}
+                disabled={applyInterestMutation.isPending}
+                className="rounded-xl bg-primary px-4 py-2 text-sm font-extrabold text-on-primary disabled:opacity-50"
+              >
+                {applyInterestMutation.isPending ? "Aplicando…" : "Aplicar"}
+              </button>
+            </div>
+            {applyInterestMutation.isError ? (
+              <p className="mt-3 text-sm text-error">{getErrorMessage(applyInterestMutation.error)}</p>
+            ) : null}
+          </div>
+        </div>
       ) : null}
     </div>
   );

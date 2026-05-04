@@ -42,6 +42,8 @@ interface ScheduleView {
   installmentNumber: number;
   dueDate: Date;
   amount: number;
+  interestApplied: boolean;
+  interestAmount: number;
   latePenalty: number;
   totalDue: number;
   pendingAmount: number;
@@ -440,6 +442,7 @@ export const getLoanSchedule = async (
 
   return schedule.map((item, idx) => {
     const amount = decimalToNumber(item.amount);
+    const interestAmount = item.interestApplied ? Math.round(decimalToNumber(item.interestAmount)) : 0;
     const paidAmount = decimalToNumber(item.paidAmount);
     // Mora is calculated dynamically (MONTHLY: per Bogotá month after due; others: day tiers).
     // It is applied in payments; exposing it here keeps UI totals aligned.
@@ -454,7 +457,7 @@ export const getLoanSchedule = async (
             nextDueDate,
             loan.frequency
           );
-    const totalDue = amount + latePenalty;
+    const totalDue = amount + interestAmount + latePenalty;
     const pendingAmount = Math.max(totalDue - paidAmount, 0);
 
     return {
@@ -462,6 +465,8 @@ export const getLoanSchedule = async (
       installmentNumber: item.installmentNumber,
       dueDate: item.dueDate,
       amount,
+      interestApplied: item.interestApplied,
+      interestAmount,
       latePenalty,
       totalDue,
       pendingAmount,
@@ -470,4 +475,76 @@ export const getLoanSchedule = async (
       paidAt: item.paidAt
     };
   });
+};
+
+export const applyInterestToSchedule = async (
+  loanId: string,
+  scheduleId: string,
+  actorId: string,
+  actorRoles: string[],
+  actorBusinessId: string | null
+): Promise<{ scheduleId: string; interestAmount: number; interestApplied: true }> => {
+  await assertLoanAccessForActor(loanId, actorId, actorRoles, actorBusinessId);
+
+  const canApply = actorRoles.includes("ADMIN") || actorRoles.includes("SUPER_ADMIN") || actorRoles.includes("ROUTE_MANAGER");
+  if (!canApply) {
+    throw new Error("You do not have permission to apply interest.");
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const schedule = await tx.paymentSchedule.findUnique({ where: { id: scheduleId } });
+    if (!schedule || schedule.loanId !== loanId) {
+      throw new Error("Schedule not found for this loan.");
+    }
+
+    if (schedule.interestApplied) {
+      throw new Error("Interest is already applied to this installment.");
+    }
+
+    const paidAmount = Math.round(decimalToNumber(schedule.paidAmount));
+    if (paidAmount > 0 || schedule.status === "PAID" || schedule.status === "PARTIAL") {
+      throw new Error("Cannot apply interest after payments have been registered for this installment.");
+    }
+
+    const loan = await tx.loan.findUnique({
+      where: { id: loanId },
+      select: { totalInterest: true, installmentCount: true }
+    });
+    if (!loan) {
+      throw new Error("Loan not found.");
+    }
+
+    const totalInterestCOP = Math.round(decimalToNumber(loan.totalInterest));
+    const share = interestSharePerInstallmentCOP(totalInterestCOP, loan.installmentCount);
+
+    let interestToApply = share;
+    const isLastInstallment = schedule.installmentNumber === loan.installmentCount;
+    if (isLastInstallment) {
+      const agg = await tx.paymentSchedule.aggregate({
+        _sum: { interestAmount: true },
+        where: { loanId, interestApplied: true }
+      });
+      const alreadyApplied = agg._sum.interestAmount ? Math.round(decimalToNumber(agg._sum.interestAmount)) : 0;
+      interestToApply = Math.max(totalInterestCOP - alreadyApplied, 0);
+    }
+
+    const updated = await tx.paymentSchedule.update({
+      where: { id: scheduleId },
+      data: {
+        interestApplied: true,
+        interestAmount: interestToApply,
+        interestAppliedAt: new Date(),
+        interestAppliedById: actorId
+      },
+      select: { id: true, interestAmount: true, interestApplied: true }
+    });
+
+    return {
+      scheduleId: updated.id,
+      interestApplied: true as const,
+      interestAmount: Math.round(decimalToNumber(updated.interestAmount))
+    };
+  });
+
+  return result;
 };

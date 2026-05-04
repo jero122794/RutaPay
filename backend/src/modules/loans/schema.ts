@@ -20,6 +20,11 @@ export const loanIdParamsSchema = z.object({
   id: z.string().cuid()
 });
 
+export const loanScheduleInterestParamsSchema = z.object({
+  id: z.string().cuid(),
+  scheduleId: z.string().cuid()
+});
+
 export const createLoanSchema = z.object({
   routeId: z.string().cuid(),
   clientId: z.string().cuid(),
