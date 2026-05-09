@@ -1,10 +1,6 @@
 // backend/src/modules/payments/service.ts
 import type { Prisma } from "@prisma/client";
 import { assertLoanAccessForActor } from "../../shared/loan-ownership.js";
-import {
-  computeLatePenaltyWithCatchUpGraceCOP,
-  interestSharePerInstallmentCOP
-} from "../../shared/late-penalty.js";
 import { sanitizePlainText } from "../../shared/sanitize.js";
 import type { PaginationQuery } from "../../shared/pagination.schema.js";
 import { prismaPaginationBounds } from "../../shared/pagination.schema.js";
@@ -140,32 +136,15 @@ export const createPayment = async (
         throw new Error("Schedule not found for this loan.");
       }
 
-      const [schedules, loanForPenalty] = await Promise.all([
-        tx.paymentSchedule.findMany({
-          where: {
-            loanId: input.loanId
-          },
-          orderBy: { installmentNumber: "asc" }
-        }),
-        tx.loan.findUnique({
-          where: { id: input.loanId },
-          select: { totalInterest: true, installmentCount: true, frequency: true }
-        })
-      ]);
-
-      if (!loanForPenalty) {
-        throw new Error("Loan not found.");
-      }
-
-      const interestShareCOP = interestSharePerInstallmentCOP(
-        Math.round(decimalToNumber(loanForPenalty.totalInterest)),
-        loanForPenalty.installmentCount
-      );
-      const paymentNow = new Date();
+      const schedules = await tx.paymentSchedule.findMany({
+        where: { loanId: input.loanId },
+        orderBy: { installmentNumber: "asc" }
+      });
 
       // Distribute payment from the oldest outstanding installment first (FIFO),
       // regardless of which installment was selected in the UI.
-      // This prevents losing mora when an earlier installment is overdue but the collector selects a later one.
+      // Late interest is exclusively manual: each installment's outstanding amount
+      // includes capital + (interestAmount only if interestApplied = true).
       let remaining = input.amount;
       let lastCreatedPayment: {
         id: string;
@@ -191,20 +170,11 @@ export const createPayment = async (
         if (remaining <= 0) break;
         if (!schedule) continue;
 
-        // Money should be handled as integers. We round Decimal->number to avoid
-        // tiny binary/representation differences during comparisons.
+        // Money handled as integers; round Decimal->number to avoid representation drift.
         const targetAmountNumber = Math.round(decimalToNumber(schedule.amount));
         const interestAmountNumber = schedule.interestApplied ? Math.round(decimalToNumber(schedule.interestAmount)) : 0;
         const currentPaidAmountNumber = Math.round(decimalToNumber(schedule.paidAmount));
-        const nextDueDate = schedules[i + 1]?.dueDate ?? null;
-        const latePenalty = computeLatePenaltyWithCatchUpGraceCOP(
-          schedule.dueDate,
-          paymentNow,
-          interestShareCOP,
-          nextDueDate,
-          loanForPenalty.frequency
-        );
-        const totalDueNumber = targetAmountNumber + interestAmountNumber + latePenalty;
+        const totalDueNumber = targetAmountNumber + interestAmountNumber;
         const outstanding = totalDueNumber - currentPaidAmountNumber;
 
         if (outstanding <= 0) continue;
@@ -382,38 +352,11 @@ export const reversePayment = async (
       throw new Error("Schedule not found.");
     }
 
-    const loanForPenalty = await tx.loan.findUnique({
-      where: { id: payment.loanId },
-      select: { totalInterest: true, installmentCount: true, frequency: true }
-    });
-    if (!loanForPenalty) {
-      throw new Error("Loan not found.");
-    }
-
-    const interestShareCOP = interestSharePerInstallmentCOP(
-      Math.round(decimalToNumber(loanForPenalty.totalInterest)),
-      loanForPenalty.installmentCount
-    );
-    const nextSchedule = await tx.paymentSchedule.findFirst({
-      where: {
-        loanId: payment.loanId,
-        installmentNumber: schedule.installmentNumber + 1
-      },
-      select: { dueDate: true }
-    });
-    const latePenaltyAtPayment = computeLatePenaltyWithCatchUpGraceCOP(
-      schedule.dueDate,
-      payment.createdAt,
-      interestShareCOP,
-      nextSchedule?.dueDate ?? null,
-      loanForPenalty.frequency
-    );
-
     const currentPaid = Math.round(decimalToNumber(schedule.paidAmount));
     const paymentAmount = Math.round(decimalToNumber(payment.amount));
     const scheduleAmount = Math.round(decimalToNumber(schedule.amount));
     const interestAmountAtPayment = schedule.interestApplied ? Math.round(decimalToNumber(schedule.interestAmount)) : 0;
-    const totalDueNumber = scheduleAmount + interestAmountAtPayment + latePenaltyAtPayment;
+    const totalDueNumber = scheduleAmount + interestAmountAtPayment;
     const nextPaid = Math.max(0, currentPaid - paymentAmount);
     const nextStatus: "PENDING" | "PAID" | "OVERDUE" | "PARTIAL" =
       nextPaid <= 0 ? "PENDING" : nextPaid >= totalDueNumber ? "PAID" : "PARTIAL";

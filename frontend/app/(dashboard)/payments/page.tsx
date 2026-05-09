@@ -594,13 +594,6 @@ const PaymentsPage = (): JSX.Element => {
                     </div>
                     <div className="flex flex-col gap-2 text-sm md:flex-row md:items-center md:gap-6">
                       <p className="text-on-surface-variant">
-                        Mora actual:{" "}
-                        <span className={scheduleForSelection.latePenalty > 0 ? "font-bold text-error" : "font-bold text-on-surface"}>
-                          {formatCOP(scheduleForSelection.latePenalty)}
-                        </span>
-                      </p>
-                      <div className="hidden h-4 w-px bg-outline-variant/30 md:block" />
-                      <p className="text-on-surface-variant">
                         Total cuota: <span className="font-bold text-on-surface">{formatCOP(scheduleForSelection.totalDue)}</span>
                       </p>
                     </div>

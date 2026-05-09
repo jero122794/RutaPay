@@ -1,10 +1,7 @@
 // backend/src/modules/loans/service.ts
 import type { LoanStatus, Prisma } from "@prisma/client";
 import { calculateLoan } from "../../shared/loan-calculator.js";
-import {
-  computeLatePenaltyWithCatchUpGraceCOP,
-  interestSharePerInstallmentCOP
-} from "../../shared/late-penalty.js";
+import { interestSharePerInstallmentCOP } from "../../shared/late-penalty.js";
 import { assertLoanAccessForActor, loanRowWithoutRoute } from "../../shared/loan-ownership.js";
 import type { PaginationQuery } from "../../shared/pagination.schema.js";
 import { prismaPaginationBounds } from "../../shared/pagination.schema.js";
@@ -419,45 +416,19 @@ export const getLoanSchedule = async (
 ): Promise<ScheduleView[]> => {
   await assertLoanAccessForActor(loanId, actorId, actorRoles, actorBusinessId);
 
-  const [schedule, loan] = await Promise.all([
-    prisma.paymentSchedule.findMany({
-      where: { loanId },
-      orderBy: { installmentNumber: "asc" }
-    }),
-    prisma.loan.findUnique({
-      where: { id: loanId },
-      select: { totalInterest: true, installmentCount: true, frequency: true }
-    })
-  ]);
+  const schedule = await prisma.paymentSchedule.findMany({
+    where: { loanId },
+    orderBy: { installmentNumber: "asc" }
+  });
 
-  if (!loan) {
-    throw new Error("Loan not found.");
-  }
-
-  const interestShareCOP = interestSharePerInstallmentCOP(
-    Math.round(decimalToNumber(loan.totalInterest)),
-    loan.installmentCount
-  );
-  const now = new Date();
-
-  return schedule.map((item, idx) => {
+  return schedule.map((item) => {
     const amount = decimalToNumber(item.amount);
     const interestAmount = item.interestApplied ? Math.round(decimalToNumber(item.interestAmount)) : 0;
     const paidAmount = decimalToNumber(item.paidAmount);
-    // Mora is calculated dynamically (MONTHLY: per Bogotá month after due; others: day tiers).
-    // It is applied in payments; exposing it here keeps UI totals aligned.
-    const nextDueDate = schedule[idx + 1]?.dueDate ?? null;
-    const latePenalty =
-      item.status === "PAID"
-        ? 0
-        : computeLatePenaltyWithCatchUpGraceCOP(
-            item.dueDate,
-            now,
-            interestShareCOP,
-            nextDueDate,
-            loan.frequency
-          );
-    const totalDue = amount + interestAmount + latePenalty;
+    // Late interest is now exclusively manual: the operator decides whether to
+    // apply interest to a specific installment via "Aplicar interés".
+    // No automatic mora is computed or charged.
+    const totalDue = amount + interestAmount;
     const pendingAmount = Math.max(totalDue - paidAmount, 0);
 
     return {
@@ -467,7 +438,7 @@ export const getLoanSchedule = async (
       amount,
       interestApplied: item.interestApplied,
       interestAmount,
-      latePenalty,
+      latePenalty: 0,
       totalDue,
       pendingAmount,
       paidAmount,
