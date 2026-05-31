@@ -32,6 +32,7 @@ export const navItemsByRole: Record<UserRole, NavItem[]> = {
     { label: "Módulos por rol", href: "/settings/role-modules", icon: "users", module: "ROLE_MODULES" },
     { label: "Usuarios", href: "/users", icon: "users", module: "USERS" },
     { label: "Rutas", href: "/routes", icon: "routes", module: "ROUTES" },
+    { label: "Clientes", href: "/clients", icon: "clients", module: "CLIENTS" },
     { label: "Préstamos", href: "/loans", icon: "loans", module: "LOANS" },
     { label: "Pagos", href: "/payments", icon: "payments", module: "PAYMENTS" },
     { label: "Tesorería", href: "/treasury", icon: "treasury", module: "TREASURY" },

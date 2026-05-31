@@ -14,6 +14,9 @@ interface PaymentView {
   clientName: string;
   scheduleId: string | null;
   amount: number;
+  capitalPaid: number;
+  interestPaid: number;
+  allocation: "CAPITAL" | "INTEREST" | "FULL" | null;
   method: "CASH" | "TRANSFER";
   status: "ACTIVE" | "REVERSED";
   registeredById: string;
@@ -35,6 +38,9 @@ const mapPayment = (payment: {
   };
   scheduleId: string | null;
   amount: Prisma.Decimal;
+  capitalPaid: Prisma.Decimal;
+  interestPaid: Prisma.Decimal;
+  allocation: "CAPITAL" | "INTEREST" | "FULL" | null;
   method: "CASH" | "TRANSFER";
   status: "ACTIVE" | "REVERSED";
   registeredById: string;
@@ -50,6 +56,9 @@ const mapPayment = (payment: {
   clientName: payment.loan.client.name,
   scheduleId: payment.scheduleId,
   amount: decimalToNumber(payment.amount),
+  capitalPaid: decimalToNumber(payment.capitalPaid),
+  interestPaid: decimalToNumber(payment.interestPaid),
+  allocation: payment.allocation,
   method: payment.method,
   // Normalize so clients never see a missing/ambiguous status (breaks reverse UI).
   status: payment.status === "REVERSED" ? "REVERSED" : "ACTIVE",
@@ -128,105 +137,96 @@ export const createPayment = async (
 
   const payment = await prisma.$transaction(async (tx) => {
     if (input.scheduleId) {
-      const startSchedule = await tx.paymentSchedule.findUnique({
+      const schedule = await tx.paymentSchedule.findUnique({
         where: { id: input.scheduleId }
       });
 
-      if (!startSchedule || startSchedule.loanId !== input.loanId) {
+      if (!schedule || schedule.loanId !== input.loanId) {
         throw new Error("Schedule not found for this loan.");
       }
 
-      const schedules = await tx.paymentSchedule.findMany({
-        where: { loanId: input.loanId },
-        orderBy: { installmentNumber: "asc" }
+      // Money handled as integers; round Decimal->number to avoid representation drift.
+      // Each installment has two buckets: capital (principalPortion) and interest
+      // (baked-in interestPortion + manual late interest if applied). The operator
+      // chooses which bucket the payment goes to; the installment is only PAID when
+      // BOTH buckets are fully covered.
+      const principalDue = Math.round(decimalToNumber(schedule.principalPortion));
+      const manualInterest = schedule.interestApplied ? Math.round(decimalToNumber(schedule.interestAmount)) : 0;
+      const interestDue = Math.round(decimalToNumber(schedule.interestPortion)) + manualInterest;
+
+      const currentPaidCapital = Math.round(decimalToNumber(schedule.paidCapital));
+      const currentPaidInterest = Math.round(decimalToNumber(schedule.paidInterest));
+
+      const outstandingCapital = Math.max(principalDue - currentPaidCapital, 0);
+      const outstandingInterest = Math.max(interestDue - currentPaidInterest, 0);
+      const outstandingTotal = outstandingCapital + outstandingInterest;
+
+      if (outstandingTotal <= 0) {
+        throw new Error("This installment is already fully paid.");
+      }
+
+      // Resolve how much of this payment goes to each bucket.
+      let toInterest = 0;
+      let toCapital = 0;
+
+      if (input.allocation === "INTEREST") {
+        if (input.amount > outstandingInterest) {
+          throw new Error("El abono supera el interés pendiente de esta cuota.");
+        }
+        toInterest = input.amount;
+      } else if (input.allocation === "CAPITAL") {
+        if (input.amount > outstandingCapital) {
+          throw new Error("El abono supera el capital pendiente de esta cuota.");
+        }
+        toCapital = input.amount;
+      } else {
+        // FULL: pay interest first, then capital, capped at this installment's total.
+        if (input.amount > outstandingTotal) {
+          throw new Error("El abono supera el total pendiente de esta cuota.");
+        }
+        toInterest = Math.min(input.amount, outstandingInterest);
+        toCapital = input.amount - toInterest;
+      }
+
+      const nextPaidCapital = currentPaidCapital + toCapital;
+      const nextPaidInterest = currentPaidInterest + toInterest;
+      const nextPaidAmount = nextPaidCapital + nextPaidInterest;
+      const isPaid = nextPaidCapital >= principalDue && nextPaidInterest >= interestDue;
+      const nextStatus = isPaid ? "PAID" : "PARTIAL";
+
+      await tx.paymentSchedule.update({
+        where: { id: schedule.id },
+        data: {
+          paidCapital: nextPaidCapital,
+          paidInterest: nextPaidInterest,
+          paidAmount: nextPaidAmount,
+          status: nextStatus,
+          paidAt: isPaid ? new Date() : null
+        }
       });
 
-      // Distribute payment from the oldest outstanding installment first (FIFO),
-      // regardless of which installment was selected in the UI.
-      // Late interest is exclusively manual: each installment's outstanding amount
-      // includes capital + (interestAmount only if interestApplied = true).
-      let remaining = input.amount;
-      let lastCreatedPayment: {
-        id: string;
-        loanId: string;
-        loan: {
-          clientId: string;
-          client: { name: string };
-        };
-        scheduleId: string | null;
-        amount: Prisma.Decimal;
-        method: "CASH" | "TRANSFER";
-        status: "ACTIVE" | "REVERSED";
-        registeredById: string;
-        notes: string | null;
-        reversedAt: Date | null;
-        reversedById: string | null;
-        reversalReason: string | null;
-        createdAt: Date;
-      } | null = null;
-
-      for (let i = 0; i < schedules.length; i += 1) {
-        const schedule = schedules[i];
-        if (remaining <= 0) break;
-        if (!schedule) continue;
-
-        // Money handled as integers; round Decimal->number to avoid representation drift.
-        const targetAmountNumber = Math.round(decimalToNumber(schedule.amount));
-        const interestAmountNumber = schedule.interestApplied ? Math.round(decimalToNumber(schedule.interestAmount)) : 0;
-        const currentPaidAmountNumber = Math.round(decimalToNumber(schedule.paidAmount));
-        const totalDueNumber = targetAmountNumber + interestAmountNumber;
-        const outstanding = totalDueNumber - currentPaidAmountNumber;
-
-        if (outstanding <= 0) continue;
-
-        const allocation = Math.min(remaining, outstanding);
-        const nextPaidAmountNumber = currentPaidAmountNumber + allocation;
-        const isPaid = nextPaidAmountNumber >= totalDueNumber;
-
-        const nextStatus = isPaid ? "PAID" : "PARTIAL";
-
-        await tx.paymentSchedule.update({
-          where: { id: schedule.id },
-          data: {
-            paidAmount: isPaid ? totalDueNumber : nextPaidAmountNumber,
-            status: nextStatus,
-            paidAt: isPaid ? new Date() : null
-          }
-        });
-
-        lastCreatedPayment = await tx.payment.create({
-          data: {
-            loanId: input.loanId,
-            scheduleId: schedule.id,
-            amount: allocation,
-            method: input.method,
-            status: "ACTIVE",
-            notes,
-            registeredById: actorId
-          },
-          include: {
-            loan: {
-              select: {
-                clientId: true,
-                client: { select: { name: true } }
-              }
+      const createdPayment = await tx.payment.create({
+        data: {
+          loanId: input.loanId,
+          scheduleId: schedule.id,
+          amount: input.amount,
+          capitalPaid: toCapital,
+          interestPaid: toInterest,
+          allocation: input.allocation,
+          method: input.method,
+          status: "ACTIVE",
+          notes,
+          registeredById: actorId
+        },
+        include: {
+          loan: {
+            select: {
+              clientId: true,
+              client: { select: { name: true } }
             }
           }
-        });
-
-        remaining -= allocation;
-      }
-
-      if (!lastCreatedPayment) {
-        throw new Error("This schedule is already fully paid.");
-      }
-
-      if (remaining > 0) {
-        // If remaining is due to numeric representation errors, allow a no-op remainder.
-        if (Math.round(remaining) > 0) {
-          throw new Error("Payment exceeds the outstanding amount for the selected and future installments.");
         }
-      }
+      });
 
       // If all installments of the loan are now PAID, mark the loan as COMPLETED.
       const nonPaidSchedulesCount = await tx.paymentSchedule.count({
@@ -240,7 +240,7 @@ export const createPayment = async (
         });
       }
 
-      return lastCreatedPayment;
+      return createdPayment;
     }
 
     return tx.payment.create({
@@ -352,18 +352,35 @@ export const reversePayment = async (
       throw new Error("Schedule not found.");
     }
 
-    const currentPaid = Math.round(decimalToNumber(schedule.paidAmount));
     const paymentAmount = Math.round(decimalToNumber(payment.amount));
-    const scheduleAmount = Math.round(decimalToNumber(schedule.amount));
-    const interestAmountAtPayment = schedule.interestApplied ? Math.round(decimalToNumber(schedule.interestAmount)) : 0;
-    const totalDueNumber = scheduleAmount + interestAmountAtPayment;
-    const nextPaid = Math.max(0, currentPaid - paymentAmount);
+    const principalDue = Math.round(decimalToNumber(schedule.principalPortion));
+    const manualInterest = schedule.interestApplied ? Math.round(decimalToNumber(schedule.interestAmount)) : 0;
+    const interestDue = Math.round(decimalToNumber(schedule.interestPortion)) + manualInterest;
+    const totalDueNumber = principalDue + interestDue;
+
+    const currentPaidCapital = Math.round(decimalToNumber(schedule.paidCapital));
+    const currentPaidInterest = Math.round(decimalToNumber(schedule.paidInterest));
+
+    // Use the payment's recorded bucket split when available; legacy payments
+    // (created before the split) reduce interest first to keep buckets consistent.
+    let reduceCapital = Math.round(decimalToNumber(payment.capitalPaid));
+    let reduceInterest = Math.round(decimalToNumber(payment.interestPaid));
+    if (reduceCapital + reduceInterest === 0 && paymentAmount > 0) {
+      reduceInterest = Math.min(paymentAmount, currentPaidInterest);
+      reduceCapital = paymentAmount - reduceInterest;
+    }
+
+    const nextPaidCapital = Math.max(0, currentPaidCapital - reduceCapital);
+    const nextPaidInterest = Math.max(0, currentPaidInterest - reduceInterest);
+    const nextPaid = nextPaidCapital + nextPaidInterest;
     const nextStatus: "PENDING" | "PAID" | "OVERDUE" | "PARTIAL" =
       nextPaid <= 0 ? "PENDING" : nextPaid >= totalDueNumber ? "PAID" : "PARTIAL";
 
     await tx.paymentSchedule.update({
       where: { id: schedule.id },
       data: {
+        paidCapital: nextPaidCapital,
+        paidInterest: nextPaidInterest,
         paidAmount: nextPaid,
         status: nextStatus,
         paidAt: nextStatus === "PAID" ? schedule.paidAt ?? new Date() : null

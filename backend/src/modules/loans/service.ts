@@ -1,7 +1,7 @@
 // backend/src/modules/loans/service.ts
 import type { LoanStatus, Prisma } from "@prisma/client";
 import { calculateLoan } from "../../shared/loan-calculator.js";
-import { interestSharePerInstallmentCOP } from "../../shared/late-penalty.js";
+import { installmentInterestPortionCOP, interestSharePerInstallmentCOP } from "../../shared/late-penalty.js";
 import { assertLoanAccessForActor, loanRowWithoutRoute } from "../../shared/loan-ownership.js";
 import type { PaginationQuery } from "../../shared/pagination.schema.js";
 import { prismaPaginationBounds } from "../../shared/pagination.schema.js";
@@ -41,6 +41,12 @@ interface ScheduleView {
   amount: number;
   interestApplied: boolean;
   interestAmount: number;
+  principalPortion: number;
+  interestPortion: number;
+  paidCapital: number;
+  paidInterest: number;
+  pendingCapital: number;
+  pendingInterest: number;
   latePenalty: number;
   totalDue: number;
   pendingAmount: number;
@@ -242,13 +248,22 @@ export const createLoan = async (
     });
 
     await tx.paymentSchedule.createMany({
-      data: preview.schedule.map((item) => ({
-        loanId: loan.id,
-        installmentNumber: item.installmentNumber,
-        dueDate: item.dueDate,
-        amount: item.amount,
-        status: "PENDING"
-      }))
+      data: preview.schedule.map((item) => {
+        const interestPortion = installmentInterestPortionCOP(
+          preview.totalInterest,
+          preview.schedule.length,
+          item.installmentNumber
+        );
+        return {
+          loanId: loan.id,
+          installmentNumber: item.installmentNumber,
+          dueDate: item.dueDate,
+          amount: item.amount,
+          interestPortion,
+          principalPortion: Math.max(item.amount - interestPortion, 0),
+          status: "PENDING" as const
+        };
+      })
     });
 
     return loan;
@@ -392,13 +407,22 @@ export const updateLoanTerms = async (
     });
 
     await tx.paymentSchedule.createMany({
-      data: preview.schedule.map((item) => ({
-        loanId: id,
-        installmentNumber: item.installmentNumber,
-        dueDate: item.dueDate,
-        amount: item.amount,
-        status: "PENDING" as const
-      }))
+      data: preview.schedule.map((item) => {
+        const interestPortion = installmentInterestPortionCOP(
+          preview.totalInterest,
+          preview.schedule.length,
+          item.installmentNumber
+        );
+        return {
+          loanId: id,
+          installmentNumber: item.installmentNumber,
+          dueDate: item.dueDate,
+          amount: item.amount,
+          interestPortion,
+          principalPortion: Math.max(item.amount - interestPortion, 0),
+          status: "PENDING" as const
+        };
+      })
     });
 
     return next;
@@ -423,13 +447,21 @@ export const getLoanSchedule = async (
 
   return schedule.map((item) => {
     const amount = decimalToNumber(item.amount);
-    const interestAmount = item.interestApplied ? Math.round(decimalToNumber(item.interestAmount)) : 0;
+    // Manual late interest (mora) charged on top of the baked-in interest portion.
+    const manualInterest = item.interestApplied ? Math.round(decimalToNumber(item.interestAmount)) : 0;
+    const principalPortion = Math.round(decimalToNumber(item.principalPortion));
+    // Interest the borrower owes for this installment = baked-in portion + manual mora.
+    const interestPortion = Math.round(decimalToNumber(item.interestPortion)) + manualInterest;
     const paidAmount = decimalToNumber(item.paidAmount);
+    const paidCapital = decimalToNumber(item.paidCapital);
+    const paidInterest = decimalToNumber(item.paidInterest);
     // Late interest is now exclusively manual: the operator decides whether to
     // apply interest to a specific installment via "Aplicar interés".
     // No automatic mora is computed or charged.
-    const totalDue = amount + interestAmount;
+    const totalDue = amount + manualInterest;
     const pendingAmount = Math.max(totalDue - paidAmount, 0);
+    const pendingCapital = Math.max(principalPortion - paidCapital, 0);
+    const pendingInterest = Math.max(interestPortion - paidInterest, 0);
 
     return {
       id: item.id,
@@ -437,7 +469,13 @@ export const getLoanSchedule = async (
       dueDate: item.dueDate,
       amount,
       interestApplied: item.interestApplied,
-      interestAmount,
+      interestAmount: manualInterest,
+      principalPortion,
+      interestPortion,
+      paidCapital,
+      paidInterest,
+      pendingCapital,
+      pendingInterest,
       latePenalty: 0,
       totalDue,
       pendingAmount,

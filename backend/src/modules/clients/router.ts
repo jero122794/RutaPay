@@ -5,7 +5,10 @@ import { moduleGuard } from "../../middleware/module.middleware.js";
 import { roleGuard } from "../../middleware/role.middleware.js";
 import {
   createClientController,
+  exportClientsController,
   getClientByIdController,
+  importClientsController,
+  importTemplateController,
   listClientsController,
   updateClientController
 } from "./controller.js";
@@ -21,6 +24,39 @@ export const clientsRouter = async (app: FastifyInstance): Promise<void> => {
       ]
     },
     listClientsController
+  );
+  app.get(
+    "/export",
+    {
+      preHandler: [
+        authGuard,
+        roleGuard(["ADMIN", "SUPER_ADMIN"]),
+        moduleGuard("CLIENTS")
+      ]
+    },
+    exportClientsController
+  );
+  app.get(
+    "/import-template",
+    {
+      preHandler: [
+        authGuard,
+        roleGuard(["ADMIN", "SUPER_ADMIN"]),
+        moduleGuard("CLIENTS")
+      ]
+    },
+    importTemplateController
+  );
+  app.post(
+    "/import",
+    {
+      preHandler: [
+        authGuard,
+        roleGuard(["ADMIN", "SUPER_ADMIN"]),
+        moduleGuard("CLIENTS")
+      ]
+    },
+    importClientsController
   );
   app.post(
     "/",

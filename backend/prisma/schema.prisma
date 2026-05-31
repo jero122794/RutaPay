@@ -156,11 +156,17 @@ model PaymentSchedule {
   installmentNumber  Int
   dueDate            DateTime
   amount             Decimal         @db.Decimal(12,2)
+  // Capital + baked-in interest split of `amount` (principalPortion + interestPortion == amount).
+  principalPortion   Decimal         @default(0) @db.Decimal(12,2)
+  interestPortion    Decimal         @default(0) @db.Decimal(12,2)
   interestApplied    Boolean         @default(false)
   interestAmount     Decimal         @default(0) @db.Decimal(12,2)
   interestAppliedAt  DateTime?
   interestAppliedById String?
   paidAmount         Decimal         @default(0) @db.Decimal(12,2)
+  // How much has been paid toward each bucket (paidCapital + paidInterest == paidAmount).
+  paidCapital        Decimal         @default(0) @db.Decimal(12,2)
+  paidInterest       Decimal         @default(0) @db.Decimal(12,2)
   status             ScheduleStatus  @default(PENDING)
   paidAt             DateTime?
   
@@ -180,6 +186,10 @@ model Payment {
   loanId         String
   scheduleId     String?
   amount         Decimal         @db.Decimal(12,2)
+  // Portion of this payment applied to each bucket (capitalPaid + interestPaid == amount).
+  capitalPaid    Decimal         @default(0) @db.Decimal(12,2)
+  interestPaid   Decimal         @default(0) @db.Decimal(12,2)
+  allocation     PaymentAllocation?
   method         PaymentMethod   @default(CASH)
   status         PaymentStatus   @default(ACTIVE)
   registeredById String
@@ -192,6 +202,12 @@ model Payment {
   loan           Loan            @relation(fields: [loanId], references: [id])
   schedule       PaymentSchedule? @relation(fields: [scheduleId], references: [id])
   registeredBy   User            @relation(fields: [registeredById], references: [id])
+}
+
+enum PaymentAllocation {
+  CAPITAL
+  INTEREST
+  FULL
 }
 
 enum PaymentMethod {

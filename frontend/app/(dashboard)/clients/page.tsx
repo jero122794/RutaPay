@@ -2,8 +2,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import axios from "axios";
@@ -11,6 +11,7 @@ import { DEFAULT_PAGE_SIZE, type PageSize } from "../../../lib/page-size";
 import { getEffectiveRoles, pickPrimaryRole } from "../../../lib/effective-roles";
 import { useAuthStore, type UserRole } from "../../../store/authStore";
 import api from "../../../lib/api";
+import { downloadAuthedFile } from "../../../lib/download";
 import { formatCOP } from "../../../lib/formatters";
 import { formatBogotaDateFromString } from "../../../lib/bogota";
 
@@ -53,6 +54,18 @@ interface ListResponse<T> {
   total: number;
   page: number;
   limit: number;
+}
+
+interface ImportRowError {
+  row: number;
+  message: string;
+}
+
+interface ImportResult {
+  totalRows: number;
+  created: number;
+  failed: number;
+  errors: ImportRowError[];
 }
 
 type AccountFilter = "all" | "active" | "late" | "finished";
@@ -123,12 +136,61 @@ const ClientsPage = (): JSX.Element => {
   const hasAuthHydrated = useAuthStore((state) => state.hasAuthHydrated);
   const role: UserRole = pickPrimaryRole(getEffectiveRoles(user));
   const canCreate = role === "ADMIN" || role === "SUPER_ADMIN" || role === "ROUTE_MANAGER";
+  const canTransfer = role === "ADMIN" || role === "SUPER_ADMIN";
 
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState<PageSize>(DEFAULT_PAGE_SIZE);
   const [routeFilter, setRouteFilter] = useState<string>("");
   const [accountFilter, setAccountFilter] = useState<AccountFilter>("all");
   const [search, setSearch] = useState("");
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [transferBusy, setTransferBusy] = useState<null | "xlsx" | "csv" | "template" | "import">(null);
+  const [transferError, setTransferError] = useState<string>("");
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+
+  const handleExport = async (format: "xlsx" | "csv"): Promise<void> => {
+    setTransferError("");
+    setTransferBusy(format);
+    try {
+      await downloadAuthedFile("/clients/export", { format }, `clientes.${format}`);
+    } catch (error) {
+      setTransferError(getErrorMessage(error));
+    } finally {
+      setTransferBusy(null);
+    }
+  };
+
+  const handleTemplate = async (): Promise<void> => {
+    setTransferError("");
+    setTransferBusy("template");
+    try {
+      await downloadAuthedFile("/clients/import-template", { format: "xlsx" }, "plantilla_clientes.xlsx");
+    } catch (error) {
+      setTransferError(getErrorMessage(error));
+    } finally {
+      setTransferBusy(null);
+    }
+  };
+
+  const handleImportFile = async (file: File): Promise<void> => {
+    setTransferError("");
+    setImportResult(null);
+    setTransferBusy("import");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await api.post<{ data: ImportResult }>("/clients/import", formData);
+      setImportResult(response.data.data);
+      await queryClient.invalidateQueries({ queryKey: ["clients-list"] });
+      await queryClient.invalidateQueries({ queryKey: ["loans-wide"] });
+    } catch (error) {
+      setTransferError(getErrorMessage(error));
+    } finally {
+      setTransferBusy(null);
+    }
+  };
 
   // No enviar page/limit: el backend solo acepta 10|20|50|100 y sin params devuelve el listado completo.
   const clientsQuery = useQuery({
@@ -382,6 +444,99 @@ const ClientsPage = (): JSX.Element => {
             ) : null}
           </div>
         </div>
+
+        {canTransfer ? (
+          <div className="flex flex-col gap-3 rounded-2xl border border-white/5 bg-surface-container-low p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="mr-auto text-xs font-bold uppercase tracking-widest text-on-surface-variant">
+                Importar / Exportar
+              </span>
+              <button
+                type="button"
+                onClick={() => handleExport("xlsx")}
+                disabled={transferBusy !== null}
+                className="inline-flex items-center gap-2 rounded-xl bg-surface-container-high px-4 py-2 text-sm font-bold text-on-surface transition-colors hover:bg-surface-container-highest disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-lg text-primary">download</span>
+                {transferBusy === "xlsx" ? "Generando…" : "Exportar Excel"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExport("csv")}
+                disabled={transferBusy !== null}
+                className="inline-flex items-center gap-2 rounded-xl bg-surface-container-high px-4 py-2 text-sm font-bold text-on-surface transition-colors hover:bg-surface-container-highest disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-lg text-secondary">table_view</span>
+                {transferBusy === "csv" ? "Generando…" : "Exportar CSV"}
+              </button>
+              <button
+                type="button"
+                onClick={handleTemplate}
+                disabled={transferBusy !== null}
+                className="inline-flex items-center gap-2 rounded-xl bg-surface-container-high px-4 py-2 text-sm font-bold text-on-surface transition-colors hover:bg-surface-container-highest disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-lg text-tertiary">description</span>
+                {transferBusy === "template" ? "Generando…" : "Plantilla"}
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={transferBusy !== null}
+                className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-on-primary shadow-lg shadow-primary/20 transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-lg">upload</span>
+                {transferBusy === "import" ? "Importando…" : "Importar clientes"}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    void handleImportFile(file);
+                  }
+                  e.target.value = "";
+                }}
+              />
+            </div>
+
+            {transferError ? (
+              <p className="text-xs font-medium text-error">{transferError}</p>
+            ) : null}
+
+            {importResult ? (
+              <div className="rounded-xl border border-white/5 bg-surface-container p-3 text-xs">
+                <div className="flex flex-wrap items-center gap-4">
+                  <span className="font-bold text-on-surface">
+                    {importResult.created} creado{importResult.created === 1 ? "" : "s"}
+                  </span>
+                  <span className={importResult.failed > 0 ? "font-bold text-error" : "text-on-surface-variant"}>
+                    {importResult.failed} con error
+                  </span>
+                  <span className="text-on-surface-variant">de {importResult.totalRows} fila{importResult.totalRows === 1 ? "" : "s"}</span>
+                  <button
+                    type="button"
+                    onClick={() => setImportResult(null)}
+                    className="ml-auto text-on-surface-variant hover:text-on-surface"
+                  >
+                    Cerrar
+                  </button>
+                </div>
+                {importResult.errors.length > 0 ? (
+                  <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                    {importResult.errors.map((err) => (
+                      <li key={err.row} className="text-error">
+                        Fila {err.row}: {err.message}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           <div className="flex flex-col gap-2 rounded-2xl bg-surface-container-low p-4">

@@ -2,6 +2,7 @@
 import bcrypt from "bcryptjs";
 import { Prisma, PrismaClient, type AppModule, type RoleName } from "@prisma/client";
 import { calculateLoan } from "../src/shared/loan-calculator.js";
+import { installmentInterestPortionCOP } from "../src/shared/late-penalty.js";
 import { ALL_APP_MODULES } from "../src/shared/role-modules.js";
 
 const prisma = new PrismaClient();
@@ -244,7 +245,15 @@ const run = async (): Promise<void> => {
           : isOverdue
             ? "OVERDUE"
             : "PENDING";
+        const interestPortion = installmentInterestPortionCOP(
+          preview.totalInterest,
+          preview.schedule.length,
+          item.installmentNumber
+        );
+        const principalPortion = Math.max(item.amount - interestPortion, 0);
         const paidAmount = isPaid ? new Prisma.Decimal(item.amount) : new Prisma.Decimal(0);
+        const paidCapital = isPaid ? new Prisma.Decimal(principalPortion) : new Prisma.Decimal(0);
+        const paidInterest = isPaid ? new Prisma.Decimal(interestPortion) : new Prisma.Decimal(0);
         const paidAt: Date | null = isPaid ? new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000) : null;
 
         const schedule = await tx.paymentSchedule.create({
@@ -253,7 +262,11 @@ const run = async (): Promise<void> => {
             installmentNumber: item.installmentNumber,
             dueDate: item.dueDate,
             amount: new Prisma.Decimal(item.amount),
+            principalPortion: new Prisma.Decimal(principalPortion),
+            interestPortion: new Prisma.Decimal(interestPortion),
             paidAmount,
+            paidCapital,
+            paidInterest,
             status,
             paidAt
           }
@@ -265,6 +278,9 @@ const run = async (): Promise<void> => {
               loanId: loan.id,
               scheduleId: schedule.id,
               amount: new Prisma.Decimal(item.amount),
+              capitalPaid: new Prisma.Decimal(principalPortion),
+              interestPaid: new Prisma.Decimal(interestPortion),
+              allocation: "FULL",
               registeredById: managerId,
               notes: "Pago registrado en seed.",
               createdAt: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000)

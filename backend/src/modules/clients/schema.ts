@@ -67,5 +67,17 @@ export const updateClientSchema = z.object({
   )
 });
 
+/** One client row coming from a bulk import file (route is resolved by name separately). */
+export const importClientRowSchema = createClientSchema.omit({ routeId: true });
+
+export const transferFormatQuerySchema = z.object({
+  format: z.preprocess(
+    (value) => (typeof value === "string" ? value.toLowerCase() : value),
+    z.enum(["csv", "xlsx"]).default("xlsx")
+  )
+});
+
 export type CreateClientInput = z.infer<typeof createClientSchema>;
 export type UpdateClientInput = z.infer<typeof updateClientSchema>;
+export type ImportClientRowInput = z.infer<typeof importClientRowSchema>;
+export type TransferFormat = z.infer<typeof transferFormatQuerySchema>["format"];

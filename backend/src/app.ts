@@ -3,6 +3,7 @@ import { createHash } from "crypto";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
+import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { authRouter } from "./modules/auth/router.js";
@@ -59,11 +60,20 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   });
 
   await app.register(cookie);
+  // Bulk client import accepts a single spreadsheet upload (CSV/XLSX).
+  await app.register(multipart, {
+    limits: {
+      fileSize: 5 * 1024 * 1024,
+      files: 1
+    }
+  });
   await app.register(cors, {
     origin: env.CORS_ORIGIN,
     credentials: true,
     // Default is only GET,HEAD,POST; without PUT/PATCH/DELETE preflight succeeds but the real request is blocked → Axios "Network Error".
-    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    // Expose so the browser can read the server-provided download filename (exports/templates).
+    exposedHeaders: ["Content-Disposition"]
   });
   await app.register(rateLimit, {
     global: false,

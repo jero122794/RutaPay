@@ -12,3 +12,21 @@ export const interestSharePerInstallmentCOP = (
   if (installmentCount <= 0) return 0;
   return Math.round(totalInterestCOP / installmentCount);
 };
+
+/**
+ * Baked-in interest portion of a specific installment (COP). The interest is spread
+ * evenly across installments and the LAST one absorbs the rounding remainder, so the
+ * sum of all interest portions equals the loan's totalInterest exactly.
+ */
+export const installmentInterestPortionCOP = (
+  totalInterestCOP: number,
+  installmentCount: number,
+  installmentNumber: number
+): number => {
+  if (installmentCount <= 0) return 0;
+  const share = interestSharePerInstallmentCOP(totalInterestCOP, installmentCount);
+  if (installmentNumber >= installmentCount) {
+    return Math.max(totalInterestCOP - share * (installmentCount - 1), 0);
+  }
+  return share;
+};

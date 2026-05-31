@@ -42,9 +42,17 @@ interface ScheduleItem {
   totalDue: number;
   pendingAmount: number;
   paidAmount: number;
+  principalPortion: number;
+  interestPortion: number;
+  paidCapital: number;
+  paidInterest: number;
+  pendingCapital: number;
+  pendingInterest: number;
   status: "PENDING" | "PAID" | "OVERDUE" | "PARTIAL";
   paidAt: string | null;
 }
+
+type PaymentAllocation = "FULL" | "INTEREST" | "CAPITAL";
 
 interface ScheduleResponse {
   data: ScheduleItem[];
@@ -57,6 +65,9 @@ interface PaymentItem {
   clientName: string;
   scheduleId: string | null;
   amount: number;
+  capitalPaid: number;
+  interestPaid: number;
+  allocation: "CAPITAL" | "INTEREST" | "FULL" | null;
   method: "CASH" | "TRANSFER";
   status: "ACTIVE" | "REVERSED";
   notes: string | null;
@@ -73,6 +84,13 @@ interface PaymentListResponse {
   limit: number;
 }
 
+const allocationLabel = (allocation: "CAPITAL" | "INTEREST" | "FULL" | null): string => {
+  if (allocation === "INTEREST") return "Interés";
+  if (allocation === "CAPITAL") return "Capital";
+  if (allocation === "FULL") return "Cuota completa";
+  return "-";
+};
+
 const getErrorMessage = (error: unknown): string => {
   if (axios.isAxiosError(error)) {
     const message = (error.response?.data as { message?: string } | undefined)?.message;
@@ -83,12 +101,14 @@ const getErrorMessage = (error: unknown): string => {
 
 interface PaymentFormValues {
   amount: number;
+  allocation: PaymentAllocation;
   method: "CASH" | "TRANSFER";
   notes?: string;
 }
 
 const paymentFormSchema = z.object({
   amount: z.number().int().positive(),
+  allocation: z.enum(["FULL", "INTEREST", "CAPITAL"]),
   method: z.enum(["CASH", "TRANSFER"]),
   notes: z.string().max(300).optional()
 });
@@ -218,11 +238,28 @@ const PaymentsPage = (): JSX.Element => {
     resolver: zodResolver(paymentFormSchema),
     defaultValues: {
       amount: 0,
+      allocation: "FULL",
       method: "CASH",
       notes: ""
     },
     mode: "onChange"
   });
+
+  const allocation = form.watch("allocation");
+  const amountValue = form.watch("amount");
+
+  // Outstanding for the bucket the operator is paying into.
+  const allocationMax = useMemo((): number => {
+    if (!scheduleForSelection) return 0;
+    if (allocation === "INTEREST") return scheduleForSelection.pendingInterest;
+    if (allocation === "CAPITAL") return scheduleForSelection.pendingCapital;
+    return scheduleForSelection.pendingAmount;
+  }, [allocation, scheduleForSelection]);
+
+  const exceedsAllocation = useMemo((): boolean => {
+    if (!scheduleForSelection) return false;
+    return Number.isFinite(amountValue) && amountValue > allocationMax;
+  }, [amountValue, allocationMax, scheduleForSelection]);
 
   const paymentIdempotencyKeyRef = useRef<string | null>(null);
 
@@ -247,6 +284,7 @@ const PaymentsPage = (): JSX.Element => {
           loanId: effectiveLoanId,
           scheduleId: scheduleForSelection.id,
           amount: values.amount,
+          allocation: values.allocation,
           method: values.method,
           notes: values.notes ? values.notes : undefined
         },
@@ -255,7 +293,7 @@ const PaymentsPage = (): JSX.Element => {
     },
     onSuccess: async () => {
       paymentIdempotencyKeyRef.current = null;
-      form.reset({ amount: 0, method: "CASH", notes: "" });
+      form.reset({ amount: 0, allocation: "FULL", method: "CASH", notes: "" });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["payments-list"] }),
         queryClient.invalidateQueries({ queryKey: ["payments-loans"] }),
@@ -592,15 +630,77 @@ const PaymentsPage = (): JSX.Element => {
                         Vencimiento: {formatBogotaDateFromString(scheduleForSelection.dueDate)}
                       </span>
                     </div>
-                    <div className="flex flex-col gap-2 text-sm md:flex-row md:items-center md:gap-6">
-                      <p className="text-on-surface-variant">
-                        Total cuota: <span className="font-bold text-on-surface">{formatCOP(scheduleForSelection.totalDue)}</span>
-                      </p>
+                    <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+                      <div className="rounded-lg bg-surface-container-low p-3">
+                        <p className="text-xs uppercase tracking-wider text-on-surface-variant">Total cuota</p>
+                        <p className="mt-1 font-bold text-on-surface">{formatCOP(scheduleForSelection.totalDue)}</p>
+                      </div>
+                      <div className="rounded-lg bg-surface-container-low p-3">
+                        <p className="text-xs uppercase tracking-wider text-on-surface-variant">Capital pendiente</p>
+                        <p className="mt-1 font-bold text-on-surface">{formatCOP(scheduleForSelection.pendingCapital)}</p>
+                      </div>
+                      <div className="rounded-lg bg-surface-container-low p-3">
+                        <p className="text-xs uppercase tracking-wider text-on-surface-variant">Interés pendiente</p>
+                        <p className="mt-1 font-bold text-on-surface">{formatCOP(scheduleForSelection.pendingInterest)}</p>
+                      </div>
                     </div>
                   </div>
                 ) : null}
 
                 <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
+                  <div className="space-y-2">
+                    <label className="px-1 text-xs font-bold uppercase tracking-widest text-on-surface-variant">
+                      Destino del abono
+                    </label>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      {(
+                        [
+                          { value: "FULL", label: "Cuota completa", hint: "Interés y luego capital" },
+                          { value: "INTEREST", label: "Solo interés", hint: "No toca el capital" },
+                          { value: "CAPITAL", label: "Solo capital", hint: "No toca el interés" }
+                        ] as { value: PaymentAllocation; label: string; hint: string }[]
+                      ).map((option) => {
+                        const isActive = allocation === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() =>
+                              form.setValue("allocation", option.value, { shouldValidate: true, shouldDirty: true })
+                            }
+                            className={[
+                              "flex flex-row items-center justify-between gap-2 rounded-xl border-2 p-3 text-left transition-colors sm:flex-col sm:items-start sm:justify-start sm:gap-1",
+                              isActive
+                                ? "border-primary bg-primary/10"
+                                : "border-transparent bg-surface-container-lowest hover:border-primary/30"
+                            ].join(" ")}
+                          >
+                            <span
+                              className={[
+                                "whitespace-nowrap text-sm font-bold",
+                                isActive ? "text-primary" : "text-on-surface"
+                              ].join(" ")}
+                            >
+                              {option.label}
+                            </span>
+                            <span className="text-right text-[11px] leading-tight text-on-surface-variant sm:text-left">
+                              {option.hint}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {scheduleForSelection ? (
+                      <button
+                        type="button"
+                        onClick={() => form.setValue("amount", allocationMax, { shouldValidate: true, shouldDirty: true })}
+                        className="px-1 text-xs font-medium text-primary hover:underline"
+                      >
+                        Usar máximo disponible: {formatCOP(allocationMax)}
+                      </button>
+                    ) : null}
+                  </div>
+
                   <div className="space-y-2">
                     <label className="px-1 text-xs font-bold uppercase tracking-widest text-on-surface-variant">
                       Monto recibido (COP)
@@ -619,6 +719,15 @@ const PaymentsPage = (): JSX.Element => {
                     </div>
                     {form.formState.errors.amount?.message ? (
                       <p className="text-xs text-error">{form.formState.errors.amount.message}</p>
+                    ) : null}
+                    {exceedsAllocation ? (
+                      <p className="text-xs text-error">
+                        {allocation === "INTEREST"
+                          ? "El abono supera el interés pendiente de esta cuota."
+                          : allocation === "CAPITAL"
+                            ? "El abono supera el capital pendiente de esta cuota."
+                            : "El abono supera el total pendiente de esta cuota."}
+                      </p>
                     ) : null}
                   </div>
 
@@ -645,6 +754,7 @@ const PaymentsPage = (): JSX.Element => {
                         !effectiveLoanId ||
                         !scheduleForSelection ||
                         availableSchedules.length === 0 ||
+                        exceedsAllocation ||
                         !form.formState.isValid
                       }
                       className="w-full rounded-xl bg-gradient-to-r from-primary to-primary-container py-5 text-lg font-black tracking-tight text-on-primary shadow-[0_20px_40px_rgba(105,246,184,0.15)] transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
@@ -768,6 +878,9 @@ const PaymentsPage = (): JSX.Element => {
                             Valor
                           </th>
                           <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
+                            Destino
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
                             Método
                           </th>
                           <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
@@ -789,6 +902,9 @@ const PaymentsPage = (): JSX.Element => {
                             </td>
                             <td data-label="Cliente" className="px-3 py-3 text-sm text-on-surface-variant">{p.clientName}</td>
                             <td data-label="Valor" className="px-3 py-3 text-sm font-semibold text-primary">{formatCOP(p.amount)}</td>
+                            <td data-label="Destino" className="px-3 py-3 text-sm text-on-surface-variant">
+                              {allocationLabel(p.allocation)}
+                            </td>
                             <td data-label="Método" className="px-3 py-3 text-sm text-on-surface-variant">
                               {p.method === "CASH" ? "Efectivo" : "Transferencia"}
                             </td>

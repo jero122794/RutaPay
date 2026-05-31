@@ -25,114 +25,63 @@ export interface LoanResult {
   schedule: ScheduleItem[];
 }
 
-export const monthlyInterestPeriodCount = (frequency: LoanFrequency, installmentCount: number): number => {
-  const n = Math.max(1, Math.floor(installmentCount));
-  switch (frequency) {
-    case "MONTHLY":
-      return n;
-    case "BIWEEKLY":
-      return Math.max(1, Math.ceil(n / 2));
-    case "WEEKLY":
-      if (n > 4) {
-        return Math.max(1, Math.ceil((n * 7) / 30));
-      }
-      return 1;
-    case "DAILY":
-      if (n > 30) {
-        return Math.max(1, Math.ceil(n / 30));
-      }
-      return 1;
-    default:
-      return 1;
-  }
+/** Nominal days covered by a single installment, per frequency. */
+const frequencyDays: Record<LoanFrequency, number> = {
+  DAILY: 1,
+  WEEKLY: 7,
+  BIWEEKLY: 15,
+  MONTHLY: 30
 };
 
-const calculateMonthlyEqualPrincipalInterest = (input: {
-  principal: number;
-  interestRate: number;
-  installmentCount: number;
-  startDate: Date;
-}): LoanResult => {
-  const { principal, interestRate, startDate } = input;
-  const n = Math.max(1, Math.floor(input.installmentCount));
+/** A full month is 30 days for interest accrual purposes. */
+const DAYS_PER_MONTH = 30;
 
-  const principalParts: number[] = [];
-  const basePrincipal = Math.floor(principal / n);
-  let allocated = 0;
-  for (let i = 0; i < n - 1; i += 1) {
-    principalParts.push(basePrincipal);
-    allocated += basePrincipal;
-  }
-  principalParts.push(principal - allocated);
-
-  const interestPerPart = principalParts.map((p) => Math.round(p * interestRate));
-  const totalInterest = interestPerPart.reduce((a, b) => a + b, 0);
-  const totalAmount = principal + totalInterest;
-
-  const amounts = principalParts.map((p, i) => p + interestPerPart[i]);
-  const sumAmounts = amounts.reduce((a, b) => a + b, 0);
-  const diff = totalAmount - sumAmounts;
-  if (diff !== 0 && amounts.length > 0) {
-    amounts[amounts.length - 1] += diff;
-  }
-
-  // Each installment is due at the end of its month period (1st at +30d, 2nd at +60d, ...).
-  const schedule: ScheduleItem[] = [];
-  for (let i = 0; i < n; i += 1) {
-    const dueDate = new Date(startDate);
-    dueDate.setUTCDate(dueDate.getUTCDate() + 30 * (i + 1));
-    schedule.push({
-      installmentNumber: i + 1,
-      dueDate,
-      amount: amounts[i] ?? 0,
-      status: "PENDING"
-    });
-  }
-
-  const installmentAmount = Math.round(totalAmount / n);
-  const lastScheduleItem = schedule.at(-1);
-  const endDate = lastScheduleItem ? lastScheduleItem.dueDate : new Date(startDate);
-
-  return {
-    totalInterest,
-    totalAmount,
-    installmentAmount,
-    endDate,
-    schedule
-  };
+/**
+ * Elapsed months for interest accrual. The interest rate is a MONTHLY rate that
+ * accrues proportionally to the loan's nominal duration, where 30 days = 1 month.
+ * Partial months are charged proportionally (e.g. 15 days = half the monthly rate).
+ *
+ * Examples (rate = 0.20):
+ *  - MONTHLY x3   -> 90 days  -> 3 months    -> principal * 0.20 * 3   = 60% interest
+ *  - BIWEEKLY x5  -> 75 days  -> 2.5 months  -> principal * 0.20 * 2.5 = 50% interest
+ */
+export const interestMonths = (frequency: LoanFrequency, installmentCount: number): number => {
+  const n = Math.max(1, Math.floor(installmentCount));
+  return (n * frequencyDays[frequency]) / DAYS_PER_MONTH;
 };
 
 export const calculateLoan = (input: LoanInput): LoanResult => {
   const { principal, interestRate, installmentCount, frequency, startDate, excludeWeekends = false } = input;
   const n = Math.max(1, Math.floor(installmentCount));
+  const daysBetween = frequencyDays[frequency];
 
-  if (frequency === "MONTHLY") {
-    return calculateMonthlyEqualPrincipalInterest({
-      principal,
-      interestRate,
-      installmentCount: n,
-      startDate
-    });
-  }
-
-  const interestPeriods = monthlyInterestPeriodCount(frequency, installmentCount);
-  const totalInterest = Math.round(principal * interestRate * interestPeriods);
+  const months = interestMonths(frequency, n);
+  const totalInterest = Math.round(principal * interestRate * months);
   const totalAmount = principal + totalInterest;
-  const installmentAmount = Math.round(totalAmount / installmentCount);
-  const lastInstallment = totalAmount - installmentAmount * (installmentCount - 1);
+  const installmentAmount = Math.round(totalAmount / n);
+  // The last installment absorbs the rounding remainder so the schedule sums exactly.
+  const lastInstallment = totalAmount - installmentAmount * (n - 1);
 
   const schedule: ScheduleItem[] = [];
-  const frequencyDays: Record<LoanFrequency, number> = {
-    DAILY: 1,
-    WEEKLY: 7,
-    BIWEEKLY: 15,
-    MONTHLY: 30
+  const pushInstallment = (installmentNumber: number, dueDate: Date): void => {
+    schedule.push({
+      installmentNumber,
+      dueDate,
+      amount: installmentNumber === n ? lastInstallment : installmentAmount,
+      status: "PENDING"
+    });
   };
 
-  const daysBetween = frequencyDays[frequency];
-  if (frequency === "DAILY" && excludeWeekends) {
+  if (frequency === "MONTHLY") {
+    // Each installment is due at the end of its month period (+30, +60, +90, ...).
+    for (let i = 1; i <= n; i += 1) {
+      const dueDate = new Date(startDate);
+      dueDate.setUTCDate(dueDate.getUTCDate() + DAYS_PER_MONTH * i);
+      pushInstallment(i, dueDate);
+    }
+  } else if (frequency === "DAILY" && excludeWeekends) {
     const cursorDate = new Date(startDate);
-    for (let i = 1; i <= installmentCount; i += 1) {
+    for (let i = 1; i <= n; i += 1) {
       if (i === 1) {
         while (cursorDate.getUTCDay() === 0 || cursorDate.getUTCDay() === 6) {
           cursorDate.setUTCDate(cursorDate.getUTCDate() + 1);
@@ -143,24 +92,13 @@ export const calculateLoan = (input: LoanInput): LoanResult => {
           cursorDate.setUTCDate(cursorDate.getUTCDate() + 1);
         }
       }
-
-      schedule.push({
-        installmentNumber: i,
-        dueDate: new Date(cursorDate),
-        amount: i === installmentCount ? lastInstallment : installmentAmount,
-        status: "PENDING"
-      });
+      pushInstallment(i, new Date(cursorDate));
     }
   } else {
-    for (let i = 1; i <= installmentCount; i += 1) {
+    for (let i = 1; i <= n; i += 1) {
       const dueDate = new Date(startDate);
       dueDate.setUTCDate(dueDate.getUTCDate() + daysBetween * (i - 1));
-      schedule.push({
-        installmentNumber: i,
-        dueDate,
-        amount: i === installmentCount ? lastInstallment : installmentAmount,
-        status: "PENDING"
-      });
+      pushInstallment(i, dueDate);
     }
   }
 
