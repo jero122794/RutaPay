@@ -363,13 +363,16 @@ const ClientsPage = (): JSX.Element => {
 
   const formatLastPaymentLine = (clientId: string): { main: string; sub: string; subClass: string } => {
     const p = lastPaymentByClientId.get(clientId);
-    if (!p) {
+    if (!p || !p.createdAt) {
       return { main: "—", sub: "Sin pagos registrados", subClass: "text-on-surface-variant" };
     }
     const loans = loansByClientId.get(clientId) ?? [];
     const cat = categoryForClient(loans);
-    const rel = formatDistanceToNow(parseISO(p.createdAt), { addSuffix: true, locale: es });
-    const main = formatBogotaDateFromString(p.createdAt);
+    // Defensive: an invalid/missing date must never crash the whole list render.
+    const parsed = parseISO(p.createdAt);
+    const isValidDate = !Number.isNaN(parsed.getTime());
+    const main = isValidDate ? formatBogotaDateFromString(p.createdAt) : "—";
+    const rel = isValidDate ? formatDistanceToNow(parsed, { addSuffix: true, locale: es }) : "";
     if (cat === "late") {
       return { main, sub: rel, subClass: "text-error font-bold" };
     }
